@@ -1,4 +1,4 @@
-"""
+﻿"""
 mock_parking_system.py — a stand-in for a THIRD-PARTY parking system.
 =====================================================================
 Creates a separate PostgreSQL database `ext_parking_demo` with a schema
@@ -22,7 +22,7 @@ ADMIN = dict(host="localhost", port=5432, dbname="postgres",
              user="postgres", password="parking123")
 EXT_DB = "ext_parking_demo"
 PLATE_PREFIX = ["WXY", "BMK", "VBA", "PLT", "JHG", "SWJ", "WA", "VCC"]
-CLASSES = ["car", "car", "car", "car", "motorcycle", "van", "lorry"]
+CLASSES = ["Car", "Car", "Car", "Car", "Motorcycle"]   # only car & motorcycle
 DECKS = ["P1", "P2", "P3", "B1", "B2"]
 
 

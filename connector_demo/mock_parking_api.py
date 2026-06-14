@@ -1,4 +1,4 @@
-"""
+﻿"""
 mock_parking_api.py — a stand-in for a THIRD-PARTY parking system's REST API.
 ============================================================================
 Your supervisor's point: "usually communicate via API." This simulates the
@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 PORT = 8900
 API_KEY = "parking-vendor-key"
 PLATES = ["WXY", "BMK", "VBA", "PLT", "JHG", "SWJ", "WA", "VCC"]
-CLASSES = ["car", "car", "car", "car", "motorcycle", "van", "lorry"]
+CLASSES = ["Car", "Car", "Car", "Car", "Motorcycle"]   # only car & motorcycle
 DECKS = ["P1", "P2", "P3", "B1", "B2"]
 
 

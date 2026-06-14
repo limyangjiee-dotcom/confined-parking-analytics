@@ -1,4 +1,4 @@
-"""
+﻿"""
 mock_parking_mysql.py — a third-party parking system on MySQL.
 ==============================================================
 Creates database `ext_parking_mysql` with a vendor-shaped table on the local
@@ -16,7 +16,7 @@ import pymysql
 ROOT = dict(host="localhost", port=3306, user="root", password="parking123")
 DB = "ext_parking_mysql"
 PLATES = ["WXY", "BMK", "VBA", "PLT", "JHG", "SWJ", "WA", "VCC"]
-CLASSES = ["car", "car", "car", "car", "motorcycle", "van", "lorry"]
+CLASSES = ["Car", "Car", "Car", "Car", "Motorcycle"]   # only car & motorcycle
 ZONES = ["Zone-A", "Zone-B", "Zone-C", "Basement-1", "Basement-2"]
 
 
