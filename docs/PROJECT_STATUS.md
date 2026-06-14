@@ -6,6 +6,25 @@
 - **Tariff calibration (real):** free first 15 min; weekday RM2 first 3 hrs, +RM1 hr 3-4, +RM2.50/hr after; flat **RM2** on Fri/weekend/public holiday.
 - **Deliverables:** model, BI reports, web-based prototype, real-time, API — ALL built.
 
+## ⚡ Current state & repo (updated 2026-06-14)
+- **Everything now lives in ONE git repo = the source of truth:** `C:\FYP\parking-analytics-fyp\`
+  (branch `main`, ~8 commits, NOT pushed to GitHub yet). Old folders (`C:\FYP\ParkingApiPg_PostgreSQL`,
+  `C:\FYP\prediction_v2`, etc.) are OBSOLETE — do not edit. Layout: `api/` (ASP.NET + dashboard `api/wwwroot`),
+  `ml/`, `scripts/`, `connector_demo/`, `gate_demo/`, `database/parking_db.dump` (+restore), `docs/`, `powerbi/`,
+  `README.md`, `DEMO_GUIDE.md`. Full handoff: desktop `FYP2\HANDOFF_FOR_NEXT_SESSION.md`.
+- **Latest changes since the connector/MySQL work (all committed to the repo):**
+  1. **Vehicle types cleaned to ONLY Car + Motorcycle** (DB + mock generators; van/lorry were demo-import artifacts).
+  2. **Auto-forecast on sync** — `Services/ForecastService.cs` runs `ml/run_forecasts_v2.py` in the background
+     after every connector sync, so the Forecast page refreshes itself (~1 min). Config in appsettings `Forecast` section.
+  3. **"Run forecast now" button** on the Predictive Analytics page (`POST /api/forecast/run`, `GET /api/forecast/run-status`).
+  4. **Soft-UI / SaaS redesign** — light gray bg, white cards, orange accent, charcoal last-KPI, white-pill active
+     nav with orange icon block, search + Refresh + profile topbar. Pure restyle of `wwwroot/assets/style.css`+`app.js`
+     (+ KPI icon badges, light chart theme, orange/light heatmap). All charts/functions unchanged. Assets at `?v=11`.
+  5. **Per-page footer captions removed** from all 10 pages.
+- **Run:** `cd C:\FYP\parking-analytics-fyp\api && dotnet run --urls http://localhost:5000`. Build gotcha: stop the
+  running app first (`Get-Process ParkingApiPg | Stop-Process -Force`) — Windows locks the DLL.
+- **Outstanding:** user pushes to GitHub + writes the FYP report; optional SQL Server live test / reset-to-empty demo script.
+
 ## Data (synthetic, calibrated to real references)
 - **2025** full year: ~8.1M vehicles, ~RM23.7M revenue, weekend peak occupancy ~94%, weekday ~61%.
 - **2026 Jan–May**: ~3.34M vehicles, ~RM9.9M revenue. Uses Malaysian plates (e.g. `SWJ2558`) + unique ticket IDs (e.g. `T5703E545`).
