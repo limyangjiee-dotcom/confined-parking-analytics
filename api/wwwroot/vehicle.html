@@ -1,0 +1,133 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Vehicles · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="vehicle" data-year="1"
+      data-title="Vehicle Analysis"
+      data-sub="Who parks here, how long they stay, and how they pay">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="banner">Type, payment and duration shares come from the transaction <b>2.5% sample</b> — shown as percentages; totals come from the full-population summaries.</div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Vehicle Type Mix</div><div class="card-note" id="noteMix"></div></div>
+      <div class="chart-box"><canvas id="chMix"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Payment Method Mix</div><div class="card-note">share of transactions</div></div>
+      <div class="chart-box"><canvas id="chPay"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Parking Duration Distribution</div><div class="card-note">tariff steps at 3h and 4h</div></div>
+      <div class="chart-box"><canvas id="chDur"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Stay &amp; Fee by Vehicle Type</div><div class="card-note">averages</div></div>
+      <div class="chart-box"><canvas id="chByType"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div class="card-title">Average Arrivals by Hour</div><div class="card-note">weekday vs weekend, full population</div></div>
+    <div class="chart-box"><canvas id="chArrivals"></canvas></div>
+  </div>
+
+  <footer class="page-foot">Plates follow Malaysian formats (e.g. SWJ2558) · duration buckets reflect the RM2/3h + RM1 + RM2.50/h weekday tariff</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [k, mix, pay, dur, byType, hourly] = await Promise.all([
+      api(`/api/dash/kpis?${q}`),
+      api(`/api/dash/vehicle-mix?${q}`),
+      api(`/api/dash/payment-mix?${q}`),
+      api(`/api/dash/duration-dist?${q}`),
+      api(`/api/dash/duration-by-type?${q}`),
+      api(`/api/dash/hourly-arrivals?${q}`)
+    ]);
+    const label = filterLabel();
+    document.getElementById("noteMix").textContent = `share of transactions · ${label}`;
+
+    const total = mix.reduce((a, b) => a + Number(b.value), 0);
+    const carShare = total ? 100 * Number(mix.find(m => m.label === "Car")?.value ?? 0) / total : null;
+
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Total Vehicles · ${label}`, value: fmtCompact(k.vehicles), sub: `${fmtNum(k.avg_daily_vehicles)} avg / day`, color: PALETTE.accent });
+    kpi(box, { label: "Car Share", value: fmtPct(carShare), sub: "of sampled transactions", color: PALETTE.violet });
+    kpi(box, { label: "Avg Stay", value: (k.avg_duration ?? "–") + " h", sub: "per vehicle", color: PALETTE.amber });
+    kpi(box, { label: "Avg Fee", value: k.avg_fee != null ? "RM " + k.avg_fee : "–", sub: "per exit", color: PALETTE.green });
+    kpi(box, { label: "Vehicle Types", value: fmtNum(mix.length), sub: mix.map(m => m.label).join(" · "), color: PALETTE.teal });
+
+    donut("chMix", mix.map(m => m.label), mix.map(m => Number(m.value)));
+    donut("chPay", pay.map(p => p.label), pay.map(p => Number(p.value)), { colors: [PALETTE.green, PALETTE.blue, PALETTE.amber, PALETTE.rose, PALETTE.violet] });
+
+    // duration distribution (as % of sample)
+    const dTotal = dur.reduce((a, b) => a + Number(b.value), 0);
+    makeChart("chDur", {
+      type: "bar",
+      data: {
+        labels: dur.map(d => d.bucket),
+        datasets: [{ label: "Share of stays", data: dur.map(d => 100 * Number(d.value) / dTotal), backgroundColor: hexA(PALETTE.accent, .7), borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.parsed.y.toFixed(1)}% of stays` } } },
+        scales: { y: { ticks: { callback: v => v + "%" } } }
+      }
+    });
+
+    // duration & fee by vehicle type
+    makeChart("chByType", {
+      data: {
+        labels: byType.map(t => t.label),
+        datasets: [
+          { type: "bar", label: "Avg stay (h)", data: byType.map(t => t.avg_duration), backgroundColor: hexA(PALETTE.amber, .7), borderRadius: 6, yAxisID: "y" },
+          { type: "bar", label: "Avg fee (RM)", data: byType.map(t => t.avg_fee), backgroundColor: hexA(PALETTE.green, .7), borderRadius: 6, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { ticks: { callback: v => v + " h" } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => "RM " + v } }
+        }
+      }
+    });
+
+    // arrivals
+    const hrs = [...Array(24).keys()];
+    const wk = hrs.map(h => hourly.find(r => r.hour === h && r.day_type === "Weekday")?.avg_arrivals ?? 0);
+    const we = hrs.map(h => hourly.find(r => r.hour === h && r.day_type === "Weekend")?.avg_arrivals ?? 0);
+    makeChart("chArrivals", {
+      type: "bar",
+      data: {
+        labels: hrs.map(hourLabel),
+        datasets: [
+          { label: "Weekday", data: wk, backgroundColor: hexA(PALETTE.accent, .65), borderRadius: 4 },
+          { label: "Weekend", data: we, backgroundColor: hexA(PALETTE.amber, .65), borderRadius: 4 }
+        ]
+      },
+      options: { scales: { y: { ticks: { callback: v => fmtCompact(v) } } } }
+    });
+  } catch (e) { showError(e); }
+};
+
+initPage();
+</script>
+</body>
+</html>

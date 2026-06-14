@@ -1,0 +1,169 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Revenue · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="revenue" data-year="1"
+      data-title="Revenue Analysis"
+      data-sub="Where the money comes from — by month, daypart and day type">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Monthly Revenue &amp; Average Fee</div><div class="card-note" id="noteMonthly"></div></div>
+      <div class="chart-box"><canvas id="chMonthly"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Revenue by Daypart</div><div class="card-note">share of selection</div></div>
+      <div class="chart-box"><canvas id="chPeriod"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Daily Revenue</div><div class="card-note">last 90 days of selection</div></div>
+      <div class="chart-box"><canvas id="chDaily"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Cumulative Revenue</div><div class="card-note" id="noteCum"></div></div>
+      <div class="chart-box"><canvas id="chCum"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Weekday vs Weekend</div><div class="card-note">flat RM2 applies Fri–Sun</div></div>
+      <div class="chart-box"><canvas id="chDayType"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Revenue by Parking Level</div><div class="card-note">all-time (2025 rollup)</div></div>
+      <div class="chart-box"><canvas id="chLevels"></canvas></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">Tariff: free first 15 min · weekday RM2 first 3h, +RM1 hr 3–4, +RM2.50/h after · flat RM2 Fri/weekend/holiday</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [k, monthly, daily, period, daytype, levels] = await Promise.all([
+      api(`/api/dash/kpis?${q}`),
+      api(`/api/dash/monthly?${q}`),
+      api(`/api/dash/daily?${q}`),
+      api(`/api/dash/revenue-by-period?${q}`),
+      api(`/api/dash/daytype?${q}`),
+      api("/api/dash/levels-alltime")
+    ]);
+    const label = filterLabel();
+    document.getElementById("noteMonthly").textContent = label;
+    document.getElementById("noteCum").textContent = label;
+
+    const wd = daytype.find(d => d.day_type === "Weekday") || {};
+    const we = daytype.find(d => d.day_type === "Weekend") || {};
+    const weShare = (we.revenue && (Number(we.revenue) + Number(wd.revenue || 0))) ?
+      100 * Number(we.revenue) / (Number(we.revenue) + Number(wd.revenue)) : null;
+    const bestMonth = monthly.reduce((a, b) => (Number(b.revenue) > Number(a?.revenue ?? -1) ? b : a), null);
+
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Total Revenue · ${label}`, value: fmtRM(k.revenue), sub: `${k.days} days`, color: PALETTE.green });
+    kpi(box, { label: "Avg Revenue / Day", value: fmtRM(k.days ? k.revenue / k.days : null), sub: "across selection", color: PALETTE.teal });
+    kpi(box, { label: "Avg Fee", value: k.avg_fee != null ? "RM " + k.avg_fee : "–", sub: "per exit", color: PALETTE.accent });
+    kpi(box, { label: "Weekend Share", value: fmtPct(weShare), sub: "of total revenue", color: PALETTE.amber });
+    kpi(box, { label: "Best Month", value: bestMonth ? bestMonth.label : "–", sub: bestMonth ? fmtRM(bestMonth.revenue) : "", color: PALETTE.violet });
+
+    // monthly revenue + avg fee
+    makeChart("chMonthly", {
+      data: {
+        labels: monthly.map(m => m.label),
+        datasets: [
+          { type: "bar", label: "Revenue (RM)", data: monthly.map(m => m.revenue), backgroundColor: hexA(PALETTE.green, .65), borderRadius: 5, yAxisID: "y" },
+          { type: "line", label: "Avg fee (RM)", data: monthly.map(m => m.avg_fee), borderColor: PALETTE.amber, backgroundColor: PALETTE.amber, tension: .35, pointRadius: 3, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { ticks: { callback: v => "RM " + fmtCompact(v) } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => "RM " + v } }
+        }
+      }
+    });
+
+    // revenue by daypart
+    donut("chPeriod", period.map(p => p.label), period.map(p => Number(p.revenue)), { fmt: fmtRMFull, colors: [PALETTE.amber, PALETTE.accent, PALETTE.violet, PALETTE.teal, PALETTE.rose] });
+
+    // daily revenue
+    const d90 = daily.slice(-90);
+    makeChart("chDaily", {
+      type: "bar",
+      data: {
+        labels: d90.map(d => fmtDate(d.date)),
+        datasets: [{ label: "Revenue", data: d90.map(d => d.revenue), backgroundColor: d90.map(d => d.event_status === "Event Day" ? hexA(PALETTE.violet, .85) : hexA(PALETTE.green, .6)), borderRadius: 2 }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          label: c => fmtRMFull(c.parsed.y),
+          afterLabel: c => d90[c.dataIndex].event_status === "Event Day" ? "Event day" : ""
+        } } },
+        scales: { y: { ticks: { callback: v => "RM " + fmtCompact(v) } }, x: { ticks: { maxTicksLimit: 10 } } }
+      }
+    });
+
+    // cumulative
+    let run = 0;
+    const cum = daily.map(d => (run += Number(d.revenue || 0)));
+    makeChart("chCum", {
+      type: "line",
+      data: {
+        labels: daily.map(d => fmtDate(d.date)),
+        datasets: [{ label: "Cumulative", data: cum, borderColor: PALETTE.teal, borderWidth: 2, pointRadius: 0, tension: .25, fill: true, backgroundColor: hexA(PALETTE.teal, .14) }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtRMFull(c.parsed.y) } } },
+        scales: { y: { ticks: { callback: v => "RM " + fmtCompact(v) } }, x: { ticks: { maxTicksLimit: 10 } } }
+      }
+    });
+
+    // weekday vs weekend
+    makeChart("chDayType", {
+      type: "bar",
+      data: {
+        labels: ["Total revenue", "Avg revenue / day"],
+        datasets: [
+          { label: "Weekday", data: [wd.revenue, wd.avg_revenue], backgroundColor: hexA(PALETTE.accent, .7), borderRadius: 6 },
+          { label: "Weekend", data: [we.revenue, we.avg_revenue], backgroundColor: hexA(PALETTE.amber, .7), borderRadius: 6 }
+        ]
+      },
+      options: { indexAxis: "y", scales: { x: { ticks: { callback: v => "RM " + fmtCompact(v) } } } }
+    });
+
+    // levels (all-time)
+    makeChart("chLevels", {
+      type: "bar",
+      data: {
+        labels: levels.map(l => l.label),
+        datasets: [{ label: "Revenue", data: levels.map(l => l.revenue), backgroundColor: levels.map((_, i) => hexA(SERIES[i % SERIES.length], .75)), borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtRMFull(c.parsed.y) } } },
+        scales: { y: { ticks: { callback: v => "RM " + fmtCompact(v) } } }
+      }
+    });
+  } catch (e) { showError(e); }
+};
+
+initPage();
+</script>
+</body>
+</html>

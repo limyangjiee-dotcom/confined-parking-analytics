@@ -1,0 +1,134 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Driver Behaviour · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="behaviour" data-year="1"
+      data-title="Driver Behaviour"
+      data-sub="Classifies each parking session into resident · worker · visitor from its stay pattern">
+<main class="main">
+
+  <div class="method-row">
+    <span class="chip"><span class="ic" style="background:var(--amber)"></span><b>Resident</b> very long / overnight stay (≥ 12h)</span>
+    <span class="chip"><span class="ic" style="background:var(--violet)"></span><b>Worker</b> weekday, morning arrival, 5–12h stay</span>
+    <span class="chip"><span class="ic" style="background:var(--accent)"></span><b>Visitor</b> short / medium daytime &amp; weekend stays</span>
+  </div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Arrivals by Hour, per Segment</div><div class="card-note">workers peak in the morning, visitors midday</div></div>
+      <div class="chart-box tall"><canvas id="chHourly"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Segment Share</div><div class="card-note" id="noteShare"></div></div>
+      <div class="chart-box tall"><canvas id="chShare"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Average Stay &amp; Fee by Segment</div><div class="card-note">behaviour profile</div></div>
+      <div class="chart-box"><canvas id="chProfile"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Segment Profiles</div><div class="card-note">how each group parks</div></div>
+      <div class="tbl-wrap" id="tblSeg"></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">Segments inferred from stay duration, arrival time and day type (the 2.5% transaction sample) — shown as shares. Resident ≥ 12h · Worker = weekday 5–11am arrival, 5–12h stay · Visitor = the rest.</footer>
+</main>
+
+<script>
+const SEGS = ["Visitor", "Worker", "Resident"];
+const SEG_COLOR = { Visitor: PALETTE.accent, Worker: PALETTE.violet, Resident: PALETTE.amber };
+const SEG_DESC = {
+  Visitor: "Short / medium daytime & weekend stays",
+  Worker: "Weekday commuters — morning in, evening out",
+  Resident: "All-day / overnight long stays"
+};
+buildShell(); chartDefaults();
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [segs, hourly] = await Promise.all([
+      api(`/api/dash/driver-segments?${q}`),
+      api(`/api/dash/driver-segments-hourly?${q}`)
+    ]);
+    const label = filterLabel();
+    document.getElementById("noteShare").textContent = label;
+
+    const total = segs.reduce((a, s) => a + Number(s.visits), 0) || 1;
+    const get = name => segs.find(s => s.segment === name) || {};
+    const share = name => 100 * Number(get(name).visits || 0) / total;
+
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Sessions · ${label}`, value: fmtCompact(total), sub: "classified by stay pattern", color: PALETTE.teal });
+    kpi(box, { label: "Visitors", value: fmtPct(share("Visitor")), sub: `avg stay ${get("Visitor").avg_duration ?? "–"} h`, color: PALETTE.accent });
+    kpi(box, { label: "Workers", value: fmtPct(share("Worker")), sub: `avg stay ${get("Worker").avg_duration ?? "–"} h`, color: PALETTE.violet });
+    kpi(box, { label: "Residents", value: fmtPct(share("Resident")), sub: `avg stay ${get("Resident").avg_duration ?? "–"} h`, color: PALETTE.amber });
+    const dominant = segs[0]?.segment;
+    kpi(box, { label: "Dominant Group", value: dominant || "–", sub: dominant ? SEG_DESC[dominant] : "", color: SEG_COLOR[dominant] || PALETTE.accent });
+
+    // arrivals by hour per segment (stacked)
+    const hrs = [...Array(24).keys()];
+    makeChart("chHourly", {
+      type: "bar",
+      data: {
+        labels: hrs.map(hourLabel),
+        datasets: SEGS.map(seg => ({
+          label: seg,
+          data: hrs.map(h => Number(hourly.find(r => r.hour === h && r.segment === seg)?.visits ?? 0)),
+          backgroundColor: hexA(SEG_COLOR[seg], .8), borderRadius: 3, stack: "s"
+        }))
+      },
+      options: {
+        scales: { x: { stacked: true, ticks: { maxTicksLimit: 12 } }, y: { stacked: true, ticks: { callback: v => fmtCompact(v) } } }
+      }
+    });
+
+    // share donut
+    donut("chShare", SEGS, SEGS.map(s => Number(get(s).visits || 0)), { colors: SEGS.map(s => SEG_COLOR[s]) });
+
+    // avg stay & fee by segment
+    makeChart("chProfile", {
+      data: {
+        labels: SEGS,
+        datasets: [
+          { type: "bar", label: "Avg stay (h)", data: SEGS.map(s => get(s).avg_duration), backgroundColor: hexA(PALETTE.violet, .7), borderRadius: 6, yAxisID: "y" },
+          { type: "bar", label: "Avg fee (RM)", data: SEGS.map(s => get(s).avg_fee), backgroundColor: hexA(PALETTE.green, .7), borderRadius: 6, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { ticks: { callback: v => v + " h" } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => "RM " + v } }
+        }
+      }
+    });
+
+    // profiles table
+    buildTable("tblSeg", [
+      { h: "Segment", c: r => badge(r.segment, r.segment === "Resident" ? "amber" : r.segment === "Worker" ? "violet" : "blue") },
+      { h: "Sessions", c: r => fmtNum(r.visits), num: true },
+      { h: "Share", c: r => fmtPct(100 * Number(r.visits) / total), num: true },
+      { h: "Avg stay", c: r => (r.avg_duration ?? "–") + " h", num: true },
+      { h: "Avg fee", c: r => "RM " + (r.avg_fee ?? "–"), num: true },
+      { h: "Typical arrival", c: r => r.avg_arrival_hour != null ? hourLabel(Math.round(r.avg_arrival_hour)) : "–" }
+    ], segs, "No sessions in this period");
+  } catch (e) { showError(e); }
+};
+
+initPage();
+</script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Overview · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="overview" data-year="1"
+      data-title="Executive Overview"
+      data-sub="Confined carpark · 11,000 bays · key performance summary">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Monthly Vehicles &amp; Revenue</div><div class="card-note" id="noteMonthly"></div></div>
+      <div class="chart-box"><canvas id="chMonthly"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Live Snapshot</div><div class="card-note">now</div></div>
+      <div class="gauge-wrap">
+        <canvas id="chGauge"></canvas>
+        <div class="gauge-center"><div class="val" id="gaugeVal">–</div><div class="lbl">occupied now</div></div>
+      </div>
+      <div class="kpi-sub" style="text-align:center" id="liveSub"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Daily Occupancy Rate</div><div class="card-note">last 90 days of selection · dashed = 85% pressure line</div></div>
+      <div class="chart-box"><canvas id="chOccTrend"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Average Arrivals by Hour</div><div class="card-note">weekday vs weekend</div></div>
+      <div class="chart-box"><canvas id="chHourly"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Weekday vs Weekend</div><div class="card-note">average per day</div></div>
+      <div class="chart-box"><canvas id="chDayType"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Average Occupancy by Month</div><div class="card-note">red = months averaging ≥ 80%</div></div>
+      <div class="chart-box"><canvas id="chMonthOcc"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Cumulative Revenue</div><div class="card-note" id="noteCum"></div></div>
+      <div class="chart-box"><canvas id="chCumRev"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Top 5 Busiest Days</div><div class="card-note">by vehicles</div></div>
+      <div class="tbl-wrap" id="tblTop"></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">FYP T711641 · Building Data Analytics for Confined Parking Data using BI Tools · synthetic data calibrated to real tariff</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [k, monthly, daily, hourly, daytype] = await Promise.all([
+      api(`/api/dash/kpis?${q}`),
+      api(`/api/dash/monthly?${q}`),
+      api(`/api/dash/daily?${q}`),
+      api(`/api/dash/hourly-arrivals?${q}`),
+      api(`/api/dash/daytype?${q}`)
+    ]);
+    const label = filterLabel();
+
+    // KPIs
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Total Vehicles · ${label}`, value: fmtCompact(k.vehicles), sub: `${fmtNum(k.avg_daily_vehicles)} avg / day`, color: PALETTE.accent });
+    kpi(box, { label: "Total Revenue", value: fmtRM(k.revenue), sub: `avg fee RM ${k.avg_fee ?? "–"}`, color: PALETTE.green });
+    kpi(box, { label: "Avg Occupancy", value: fmtPct(k.avg_occupancy), sub: `peak ${fmtPct(k.peak_occupancy)}`, color: PALETTE.violet });
+    kpi(box, { label: "Days at Capacity", value: fmtNum(k.full_days), sub: `of ${k.days} days`, color: PALETTE.rose });
+    kpi(box, { label: "Avg Stay", value: (k.avg_duration ?? "–") + " h", sub: "per vehicle", color: PALETTE.amber });
+    kpi(box, { label: "Event Days", value: fmtNum(k.event_days), sub: "flagged in calendar", color: PALETTE.blue });
+
+    // Monthly combo
+    document.getElementById("noteMonthly").textContent = label;
+    makeChart("chMonthly", {
+      data: {
+        labels: monthly.map(m => m.label),
+        datasets: [
+          { type: "bar", label: "Vehicles", data: monthly.map(m => m.vehicles), backgroundColor: hexA(PALETTE.accent, .55), borderRadius: 5, yAxisID: "y" },
+          { type: "line", label: "Revenue (RM)", data: monthly.map(m => m.revenue), borderColor: PALETTE.green, backgroundColor: PALETTE.green, tension: .35, pointRadius: 3, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { ticks: { callback: v => fmtCompact(v) } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => "RM " + fmtCompact(v) } }
+        }
+      }
+    });
+
+    // Occupancy trend (last 90 days)
+    const d90 = daily.slice(-90);
+    makeChart("chOccTrend", {
+      type: "line",
+      data: {
+        labels: d90.map(d => fmtDate(d.date)),
+        datasets: [
+          { label: "Occupancy %", data: d90.map(d => d.occupancy),
+            borderColor: PALETTE.violet, borderWidth: 2, pointRadius: 0, tension: .3, fill: true,
+            backgroundColor: hexA(PALETTE.violet, .18) },
+          thresholdLine(d90.length, 85, PALETTE.rose)
+        ]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtPct(c.parsed.y) } } },
+        scales: { y: { max: 110, ticks: { callback: v => v + "%" } }, x: { ticks: { maxTicksLimit: 10 } } }
+      }
+    });
+
+    // Hourly arrivals weekday vs weekend
+    const hrs = [...Array(24).keys()];
+    const wk = hrs.map(h => hourly.find(r => r.hour === h && r.day_type === "Weekday")?.avg_arrivals ?? 0);
+    const we = hrs.map(h => hourly.find(r => r.hour === h && r.day_type === "Weekend")?.avg_arrivals ?? 0);
+    makeChart("chHourly", {
+      type: "line",
+      data: {
+        labels: hrs.map(hourLabel),
+        datasets: [
+          { label: "Weekday", data: wk, borderColor: PALETTE.accent, borderWidth: 2, pointRadius: 0, tension: .35, fill: true, backgroundColor: hexA(PALETTE.accent, .15) },
+          { label: "Weekend", data: we, borderColor: PALETTE.amber, borderWidth: 2, pointRadius: 0, tension: .35, fill: true, backgroundColor: hexA(PALETTE.amber, .15) }
+        ]
+      },
+      options: { scales: { y: { ticks: { callback: v => fmtCompact(v) } }, x: { ticks: { maxTicksLimit: 12 } } } }
+    });
+
+    // Day-type comparison
+    const wd = daytype.find(d => d.day_type === "Weekday") || {};
+    const wend = daytype.find(d => d.day_type === "Weekend") || {};
+    makeChart("chDayType", {
+      type: "bar",
+      data: {
+        labels: ["Avg vehicles / day", "Avg revenue / day (RM)"],
+        datasets: [
+          { label: "Weekday", data: [wd.avg_vehicles, wd.avg_revenue], backgroundColor: hexA(PALETTE.accent, .7), borderRadius: 6 },
+          { label: "Weekend", data: [wend.avg_vehicles, wend.avg_revenue], backgroundColor: hexA(PALETTE.amber, .7), borderRadius: 6 }
+        ]
+      },
+      options: { indexAxis: "y", scales: { x: { ticks: { callback: v => fmtCompact(v) } } } }
+    });
+
+    // Monthly avg occupancy
+    makeChart("chMonthOcc", {
+      type: "bar",
+      data: {
+        labels: monthly.map(m => m.label),
+        datasets: [{ label: "Avg occupancy %", data: monthly.map(m => m.avg_occupancy), backgroundColor: monthly.map(m => m.avg_occupancy >= 80 ? hexA(PALETTE.rose, .75) : hexA(PALETTE.violet, .7)), borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtPct(c.parsed.y) } } },
+        scales: { y: { max: 100, ticks: { callback: v => v + "%" } } }
+      }
+    });
+
+    // Cumulative revenue
+    document.getElementById("noteCum").textContent = label;
+    let run = 0;
+    const cum = daily.map(d => (run += Number(d.revenue || 0)));
+    makeChart("chCumRev", {
+      type: "line",
+      data: {
+        labels: daily.map(d => fmtDate(d.date)),
+        datasets: [{ label: "Cumulative revenue", data: cum, borderColor: PALETTE.green, borderWidth: 2, pointRadius: 0, tension: .25, fill: true, backgroundColor: hexA(PALETTE.green, .14) }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => fmtRMFull(c.parsed.y) } } },
+        scales: { y: { ticks: { callback: v => "RM " + fmtCompact(v) } }, x: { ticks: { maxTicksLimit: 10 } } }
+      }
+    });
+
+    // Top 5 busiest days
+    const top = [...daily].sort((a, b) => b.vehicles - a.vehicles).slice(0, 5);
+    buildTable("tblTop", [
+      { h: "Date", c: r => fmtDateFull(r.date) },
+      { h: "Day", c: r => r.day_name || "" },
+      { h: "Type", c: r => r.event_status === "Event Day" ? badge("Event", "violet") : badge(r.day_type || "–", r.day_type === "Weekend" ? "blue" : "grey") },
+      { h: "Vehicles", c: r => fmtNum(r.vehicles), num: true },
+      { h: "Occupancy", c: r => fmtPct(r.occupancy), num: true },
+      { h: "Revenue", c: r => fmtRMFull(r.revenue), num: true }
+    ], top);
+  } catch (e) { showError(e); }
+};
+
+// Live snapshot (independent of year)
+async function liveSnapshot() {
+  try {
+    const occ = await api("/api/occupancy");
+    const pct = occ.occupancyRatePct;
+    document.getElementById("gaugeVal").textContent = fmtPct(pct);
+    document.getElementById("liveSub").innerHTML = `<span class="pulse"></span>${fmtNum(occ.occupied)} of ${fmtNum(occ.capacity)} bays occupied`;
+    makeChart("chGauge", {
+      type: "doughnut",
+      data: { datasets: [{ data: [pct, Math.max(0, 100 - pct)], backgroundColor: [pct >= 85 ? PALETTE.rose : pct >= 60 ? PALETTE.amber : PALETTE.green, "#1a2440"], borderWidth: 0, cutout: "78%", circumference: 240, rotation: 240 }] },
+      options: { plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+    });
+  } catch { document.getElementById("liveSub").textContent = "Live feed offline — start the API & simulator"; }
+}
+
+initPage();
+startAutoRefresh(initPage, 60);
+liveSnapshot(); setInterval(liveSnapshot, 15000);
+</script>
+</body>
+</html>

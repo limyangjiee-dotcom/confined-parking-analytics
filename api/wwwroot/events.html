@@ -1,0 +1,155 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Events · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="events" data-year="1"
+      data-title="Events Impact"
+      data-sub="How mall events lift parking demand — and what is coming up">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Event Day vs Normal Day</div><div class="card-note">average per day</div></div>
+      <div class="chart-box"><canvas id="chImpact"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Occupancy &amp; Stay Uplift</div><div class="card-note">event vs normal averages</div></div>
+      <div class="chart-box"><canvas id="chUplift"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Revenue by Event Category</div><div class="card-note" id="noteCat"></div></div>
+      <div class="chart-box"><canvas id="chCatRev"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Event Days by Category</div><div class="card-note">count of days</div></div>
+      <div class="chart-box"><canvas id="chCatCount"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Event Log</div><div class="card-note" id="noteLog"></div></div>
+      <div class="tbl-wrap" id="tblLog"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Upcoming Events</div><div class="card-note">Event_Calendar · feeds the ML forecast</div></div>
+      <div class="tbl-wrap" id="tblUpcoming"></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">Past events from Event_Log_Table · future events from Event_Calendar (used by the event-aware forecast)</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [impact, log, cats, calendar] = await Promise.all([
+      api(`/api/dash/event-impact?${q}`),
+      api(`/api/dash/event-log?${q}`),
+      api(`/api/dash/event-categories?${q}`),
+      api("/api/data/Event_Calendar")
+    ]);
+    const label = filterLabel();
+    document.getElementById("noteCat").textContent = label;
+    document.getElementById("noteLog").textContent = `${log.length} event days · ${label}`;
+
+    const ev = impact.find(i => i.status === "Event Day") || {};
+    const norm = impact.find(i => i.status !== "Event Day") || {};
+    const lift = (a, b) => (a && b) ? ((a / b - 1) * 100) : null;
+    const vehLift = lift(ev.avg_vehicles, norm.avg_vehicles);
+    const revLift = lift(ev.avg_revenue, norm.avg_revenue);
+    const topCat = cats[0];
+
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Event Days · ${label}`, value: fmtNum(ev.days ?? 0), sub: `of ${(ev.days ?? 0) + (norm.days ?? 0)} days`, color: PALETTE.violet });
+    kpi(box, { label: "Traffic Uplift", value: vehLift == null ? "–" : "+" + vehLift.toFixed(1) + "%", sub: "vehicles vs normal day", color: PALETTE.accent });
+    kpi(box, { label: "Revenue Uplift", value: revLift == null ? "–" : "+" + revLift.toFixed(1) + "%", sub: "revenue vs normal day", color: PALETTE.green });
+    kpi(box, { label: "Top Category", value: topCat ? topCat.label : "–", sub: topCat ? `${fmtRM(topCat.revenue)} across ${topCat.events} days` : "no events in selection", color: PALETTE.amber });
+    kpi(box, { label: "Event Occupancy", value: fmtPct(ev.avg_occupancy), sub: `normal day ${fmtPct(norm.avg_occupancy)}`, color: PALETTE.rose });
+
+    // impact grouped bars
+    makeChart("chImpact", {
+      type: "bar",
+      data: {
+        labels: ["Avg vehicles / day", "Avg revenue / day (RM)"],
+        datasets: [
+          { label: "Normal day", data: [norm.avg_vehicles, norm.avg_revenue], backgroundColor: hexA(PALETTE.blue, .6), borderRadius: 6 },
+          { label: "Event day", data: [ev.avg_vehicles, ev.avg_revenue], backgroundColor: hexA(PALETTE.violet, .8), borderRadius: 6 }
+        ]
+      },
+      options: { indexAxis: "y", scales: { x: { ticks: { callback: v => fmtCompact(v) } } } }
+    });
+
+    // occupancy & stay uplift
+    makeChart("chUplift", {
+      type: "bar",
+      data: {
+        labels: ["Avg occupancy %", "Avg stay (h)"],
+        datasets: [
+          { label: "Normal day", data: [norm.avg_occupancy, norm.avg_duration], backgroundColor: hexA(PALETTE.blue, .6), borderRadius: 6 },
+          { label: "Event day", data: [ev.avg_occupancy, ev.avg_duration], backgroundColor: hexA(PALETTE.violet, .8), borderRadius: 6 }
+        ]
+      },
+      options: { plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y}` } } } }
+    });
+
+    // category revenue + vehicles
+    makeChart("chCatRev", {
+      data: {
+        labels: cats.map(c => c.label),
+        datasets: [
+          { type: "bar", label: "Revenue (RM)", data: cats.map(c => c.revenue), backgroundColor: hexA(PALETTE.green, .7), borderRadius: 6, yAxisID: "y" },
+          { type: "line", label: "Vehicles", data: cats.map(c => c.vehicles), borderColor: PALETTE.accent, backgroundColor: PALETTE.accent, tension: .3, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { ticks: { callback: v => "RM " + fmtCompact(v) } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => fmtCompact(v) } }
+        }
+      }
+    });
+
+    donut("chCatCount", cats.map(c => c.label), cats.map(c => c.events), { colors: [PALETTE.violet, PALETTE.accent, PALETTE.amber, PALETTE.teal, PALETTE.rose] });
+
+    // event log table
+    buildTable("tblLog", [
+      { h: "Date", c: r => fmtDateFull(r.date) },
+      { h: "Category", c: r => badge(r.category, "violet") },
+      { h: "Vehicles", c: r => fmtNum(r.vehicles), num: true },
+      { h: "Revenue", c: r => fmtRMFull(r.revenue), num: true }
+    ], log, "No event days in this selection");
+
+    // upcoming events (today onwards)
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const up = calendar
+      .map(r => ({ date: new Date(r.Event_Date), name: r.Event_Name, scale: r.Expected_Scale }))
+      .filter(r => r.date >= today)
+      .sort((a, b) => a.date - b.date);
+    buildTable("tblUpcoming", [
+      { h: "Date", c: r => fmtDateFull(r.date) },
+      { h: "Event", c: r => r.name },
+      { h: "Scale", c: r => badge(r.scale, r.scale === "Large" ? "rose" : r.scale === "Medium" ? "amber" : "grey") }
+    ], up, "No upcoming events — add rows to Event_Calendar");
+  } catch (e) { showError(e); }
+};
+
+initPage();
+</script>
+</body>
+</html>

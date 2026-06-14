@@ -1,0 +1,229 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Forecast · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="forecast" data-year="0"
+      data-title="Predictive Analytics"
+      data-sub="7-day demand forecast · day-type & time-type detection · historical pattern matching with confidence scores">
+<main class="main">
+
+  <!-- how-it-works method chips -->
+  <div class="method-row">
+    <span class="chip"><span class="ic" style="background:var(--green)"></span><b>Day-type detection</b> weekday · weekend · holiday · event</span>
+    <span class="chip"><span class="ic" style="background:var(--accent)"></span><b>Time-type</b> office hours vs after hours</span>
+    <span class="chip"><span class="ic" style="background:var(--violet)"></span><b>Pattern matching</b> next Tuesday ← previous Tuesdays</span>
+    <span class="chip"><span class="ic" style="background:var(--amber)"></span><b>Event boost</b> auto-lifts event days</span>
+    <span class="chip"><span class="ic" style="background:var(--rose)"></span><b>Confidence</b> from backtest accuracy</span>
+  </div>
+
+  <div class="hero" id="hero"></div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-head"><div class="card-title">7-Day Forecast</div><div class="card-note">predicted vehicles · revenue · confidence per day</div></div>
+    <div class="fc-strip" id="fcStrip"></div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Hourly Forecast</div>
+        <select class="month-select" id="dayPick" aria-label="Pick a forecast day"></select>
+      </div>
+      <div class="chart-box tall"><canvas id="chHourly"></canvas></div>
+      <div class="kpi-sub" id="basisNote" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Predicted Daily Revenue</div><div class="card-note">next 7 days · bar colour = day type</div></div>
+      <div class="chart-box tall"><canvas id="chRevenue"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-head"><div class="card-title">7-Day Predictions — Detail</div><div class="card-note">each prediction shows the history it was matched against</div></div>
+    <div class="tbl-wrap" id="tblNext"></div>
+  </div>
+
+  <footer class="page-foot">Day type from calendar + public holidays + event calendar · time bands Office 8am–6pm / After Hours · confidence derived from walk-forward backtest accuracy per day type · model retrains daily at 02:10</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+const DT_COLOR = { "Event": PALETTE.violet, "Public Holiday": PALETTE.amber, "Weekend": PALETTE.blue, "Weekday": PALETTE.green };
+const HORIZON = 7;
+let hourlyAll = [];
+
+// confidence grounded in the walk-forward backtest MAPE for each day type,
+// adjusted down when the event-name match has no history (weaker basis).
+function confidenceFor(dayType, basis, mapeByType) {
+  let mape = mapeByType[dayType] ?? mapeByType["ALL"] ?? 8;
+  let conf = 100 - mape;
+  if (/no '.*' history/.test(basis || "")) conf -= 8;       // event with no same-name history
+  conf = Math.max(70, Math.min(98, conf));
+  const band = conf >= 92 ? ["High", PALETTE.green]
+             : conf >= 84 ? ["Medium", PALETTE.amber]
+             : ["Low", PALETTE.rose];
+  return { pct: Math.round(conf), label: band[0], color: band[1] };
+}
+
+async function init() {
+  try {
+    const [dailyRaw, hourlyRaw, mapeRaw] = await Promise.all([
+      api("/api/data/Forecast_Daily_V2"),
+      api("/api/data/Forecast_Hourly_V2"),
+      api("/api/data/Model_Comparison_V2")
+    ]);
+    const all = dailyRaw.sort((a, b) => a.Date.localeCompare(b.Date));
+    const daily = all.slice(0, HORIZON);
+    hourlyAll = hourlyRaw;
+
+    // MAPE per day type (vehicles, ML rows only) for confidence
+    const mapeByType = {};
+    mapeRaw.filter(r => r.Target === "vehicles" && /^ML/.test(r.Model))
+           .forEach(r => { mapeByType[r.Day_Type] = Number(r.MAPE_Percent); });
+
+    const evName = d => hourlyAll.find(h => h.Date === d.Date && h.Event_Name)?.Event_Name || "Event";
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+    const tIso = isoDate(tomorrow);
+    const tm = daily.find(d => d.Date.slice(0, 10) === tIso) || daily[0];
+
+    // ---------- tomorrow hero ----------
+    const tmHours = hourlyAll.filter(h => h.Date.slice(0, 10) === tm.Date.slice(0, 10));
+    const sumV = rows => Math.round(rows.reduce((a, r) => a + Number(r.Predicted_Vehicles || 0), 0));
+    const office = sumV(tmHours.filter(h => h.Time_Band === "Office Hours"));
+    const after = sumV(tmHours.filter(h => h.Time_Band === "After Hours"));
+    const peak = tmHours.reduce((a, b) => (Number(b.Predicted_Vehicles) > Number(a?.Predicted_Vehicles ?? -1) ? b : a), null);
+    const tmConf = confidenceFor(tm.Day_Type, tm.Prediction_Basis, mapeByType);
+
+    // event impact: tomorrow/event vs a typical weekday in the window
+    const weekdayRef = (() => {
+      const wd = all.filter(d => d.Day_Type === "Weekday").map(d => Number(d.Predicted_Vehicles)).sort((a, b) => a - b);
+      return wd.length ? wd[Math.floor(wd.length / 2)] : null;
+    })();
+    const nextEvent = all.find(d => d.Day_Type === "Event");
+    const evBoost = (nextEvent && weekdayRef) ? Math.round((Number(nextEvent.Predicted_Vehicles) / weekdayRef - 1) * 100) : null;
+
+    document.getElementById("hero").innerHTML = `
+      <div class="hero-card">
+        <div class="hero-label">Tomorrow · ${fmtDateFull(tm.Date)} (${tm.Day_Name})</div>
+        <div class="hero-value">${fmtNum(tm.Predicted_Vehicles)} <span style="font-size:14px;color:var(--text-dim)">vehicles</span></div>
+        <div class="hero-sub">detected: ${dayTypeBadge(tm.Day_Type)}${tm.Day_Type === "Event" ? " " + badge(evName(tm), "violet") : ""}</div>
+        <div class="hero-sub" style="margin-top:8px">
+          <div class="conf-bar" style="max-width:200px"><div class="conf-fill" style="width:${tmConf.pct}%;background:${tmConf.color}"></div></div>
+          <span style="color:${tmConf.color};font-weight:650">${tmConf.pct}% confidence · ${tmConf.label}</span>
+        </div>
+      </div>
+      <div class="hero-card plain">
+        <div class="hero-label">Predicted Revenue · Tomorrow</div>
+        <div class="hero-value" style="color:var(--green)">${fmtRMFull(tm.Predicted_Revenue)}</div>
+        <div class="hero-sub">auto-predicted from previous ${tm.Day_Type.toLowerCase()} history</div>
+        <div class="hero-sub" style="margin-top:6px;opacity:.85">basis: ${tm.Prediction_Basis}</div>
+      </div>
+      <div class="hero-card plain">
+        <div class="hero-label">Time-Type Split · Tomorrow</div>
+        <div class="hero-value" style="font-size:23px">${fmtNum(office)} <span style="font-size:12px;color:var(--text-dim)">office hrs</span></div>
+        <div class="hero-sub">${fmtNum(after)} after hours · ${badge("Office 8am–6pm", "blue")} ${badge("After", "grey")}</div>
+        <div class="hero-sub" style="margin-top:6px;opacity:.85">busiest: ${peak ? hourLabel(peak.Hour) + " · " + fmtPct(peak.Predicted_Occupancy) + " full" : "–"}</div>
+      </div>
+      <div class="hero-card plain">
+        <div class="hero-label">Event Impact</div>
+        <div class="hero-value" style="font-size:23px">${evBoost != null ? "+" + evBoost + "%" : "–"}</div>
+        <div class="hero-sub">${nextEvent ? `${evName(nextEvent)} on ${nextEvent.Date.slice(0,10) === tIso ? "tomorrow" : fmtDate(nextEvent.Date)}` : "no events in next 7 days"}</div>
+        <div class="hero-sub" style="margin-top:6px;opacity:.85">${evBoost != null ? "vs a typical weekday · auto-boosted" : "predictions follow normal day types"}</div>
+      </div>`;
+
+    // ---------- 7-day strip ----------
+    document.getElementById("fcStrip").innerHTML = daily.map(d => {
+      const c = confidenceFor(d.Day_Type, d.Prediction_Basis, mapeByType);
+      const isTom = d.Date.slice(0, 10) === tIso;
+      return `<div class="fc-day${isTom ? " is-tomorrow" : ""}" style="animation-delay:${daily.indexOf(d) * .04}s">
+        <div class="fc-dow">${d.Day_Name}${isTom ? " · tomorrow" : ""}</div>
+        <div class="fc-date">${fmtDate(d.Date)}</div>
+        <div class="fc-type">${dayTypeBadge(d.Day_Type)}</div>
+        <div class="fc-veh">${fmtNum(d.Predicted_Vehicles)}</div>
+        <div class="fc-unit">vehicles</div>
+        <div class="fc-rev">${fmtRMFull(d.Predicted_Revenue)}</div>
+        <div class="conf">
+          <div class="conf-bar"><div class="conf-fill" style="width:${c.pct}%;background:${c.color}"></div></div>
+          <div class="conf-label" style="color:${c.color}">${c.pct}% · ${c.label} confidence</div>
+        </div>
+      </div>`;
+    }).join("");
+
+    // ---------- hourly explorer (next 7 days, defaults to tomorrow) ----------
+    const dates = daily.map(d => d.Date);
+    const pick = document.getElementById("dayPick");
+    pick.innerHTML = dates.map(d => {
+      const ev = hourlyAll.find(h => h.Date === d && h.Event_Name);
+      const day = hourlyAll.find(h => h.Date === d);
+      return `<option value="${d}">${fmtDate(d)} · ${day.Day_Name.slice(0, 3)}${ev ? " ★ " + ev.Event_Name : ""}</option>`;
+    }).join("");
+    pick.value = dates.find(d => d.slice(0, 10) === tIso) || dates[0];
+    pick.addEventListener("change", () => drawHourly(pick.value));
+    drawHourly(pick.value);
+
+    // ---------- 7-day revenue ----------
+    makeChart("chRevenue", {
+      type: "bar",
+      data: {
+        labels: daily.map(d => `${fmtDate(d.Date)}`),
+        datasets: [{ label: "Predicted revenue", data: daily.map(d => d.Predicted_Revenue),
+          backgroundColor: daily.map(d => hexA(DT_COLOR[d.Day_Type] || PALETTE.green, .82)), borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          label: c => fmtRMFull(c.parsed.y),
+          afterLabel: c => daily[c.dataIndex].Day_Type + (daily[c.dataIndex].Day_Type === "Event" ? " · " + evName(daily[c.dataIndex]) : "")
+        } } },
+        scales: { y: { ticks: { callback: v => "RM " + fmtCompact(v) } } }
+      }
+    });
+
+    // ---------- detail table ----------
+    buildTable("tblNext", [
+      { h: "Date", c: r => `${fmtDate(r.Date)} <span style="color:var(--text-faint)">${r.Day_Name.slice(0, 3)}</span>` },
+      { h: "Day Type", c: r => dayTypeBadge(r.Day_Type) + (r.Day_Type === "Event" ? " " + badge(evName(r), "violet") : "") },
+      { h: "Vehicles", c: r => fmtNum(r.Predicted_Vehicles), num: true },
+      { h: "Revenue", c: r => fmtRMFull(r.Predicted_Revenue), num: true },
+      { h: "Confidence", c: r => { const c = confidenceFor(r.Day_Type, r.Prediction_Basis, mapeByType); return `<span style="color:${c.color};font-weight:650">${c.pct}% ${c.label}</span>`; } },
+      { h: "Matched against", c: r => `<span style="white-space:normal;color:var(--text-dim)">${r.Prediction_Basis}</span>` }
+    ], daily);
+  } catch (e) { showError(e); }
+}
+
+function drawHourly(date) {
+  const rows = hourlyAll.filter(h => h.Date === date).sort((a, b) => a.Hour - b.Hour);
+  const ev = rows.find(r => r.Event_Name);
+  const dayType = rows[0]?.Day_Type || "";
+  document.getElementById("basisNote").innerHTML =
+    rows.length ? `${dayTypeBadge(dayType)}${ev ? " " + badge(ev.Event_Name, "violet") : ""} · darker bars = office hours (8am–6pm) · 2pm matched against: ${rows.find(r => r.Hour === 14)?.Prediction_Basis || "–"}` : "";
+  makeChart("chHourly", {
+    data: {
+      labels: rows.map(r => hourLabel(r.Hour)),
+      datasets: [
+        { type: "bar", label: "Predicted vehicles / h", data: rows.map(r => r.Predicted_Vehicles),
+          backgroundColor: rows.map(r => r.Time_Band === "Office Hours" ? hexA(PALETTE.accent, .82) : hexA(PALETTE.accent, .3)), borderRadius: 4, yAxisID: "y" },
+        { type: "line", label: "Predicted occupancy %", data: rows.map(r => r.Predicted_Occupancy),
+          borderColor: PALETTE.rose, borderWidth: 2, pointRadius: 0, tension: .35, yAxisID: "y2" }
+      ]
+    },
+    options: {
+      plugins: { tooltip: { callbacks: { afterTitle: c => rows[c[0].dataIndex].Time_Band } } },
+      scales: {
+        y: { ticks: { callback: v => fmtCompact(v) } },
+        y2: { position: "right", max: 110, grid: { drawOnChartArea: false }, ticks: { callback: v => v + "%" } }
+      }
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>

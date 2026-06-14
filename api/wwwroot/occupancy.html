@@ -1,0 +1,182 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Occupancy · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="occupancy" data-year="1"
+      data-title="Occupancy Analysis"
+      data-sub="When the carpark fills up — by hour, day and month">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div class="card-title">Occupancy Heatmap — Day × Hour</div><div class="card-note" id="noteHm"></div></div>
+    <div class="heatmap" id="heatmap"></div>
+    <div class="hm-legend">0%<span class="bar"></span>100%+ <span style="margin-left:10px">hover a cell for the exact value</span></div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Average Occupancy by Hour</div><div class="card-note">per day type</div></div>
+      <div class="chart-box"><canvas id="chHourly"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Peak Periods</div><div class="card-note">avg occupancy &amp; concurrent vehicles</div></div>
+      <div class="chart-box"><canvas id="chPeak"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Daily Occupancy Distribution</div><div class="card-note">how many days fall in each band</div></div>
+      <div class="chart-box"><canvas id="chHist"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Daily Occupancy Trend</div><div class="card-note">dashed = 85% pressure line</div></div>
+      <div class="chart-box"><canvas id="chTrend"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><div class="card-title">Entries vs Exits by Hour</div><div class="card-note">arrivals peak in the morning, departures in the evening</div></div>
+    <div class="chart-box"><canvas id="chFlow"></canvas></div>
+  </div>
+
+  <footer class="page-foot">Occupancy = concurrent vehicles ÷ 11,000 bays · full-population summary tables</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+window.initPage = async function () {
+  const q = dashQuery();
+  try {
+    const [k, heat, hourly, peaks, daily, flow] = await Promise.all([
+      api(`/api/dash/kpis?${q}`),
+      api(`/api/dash/heatmap?${q}`),
+      api(`/api/dash/hourly-occupancy?${q}`),
+      api(`/api/dash/peak-periods?${q}`),
+      api(`/api/dash/daily?${q}`),
+      api(`/api/dash/entries-exits-hourly?${q}`)
+    ]);
+    const label = filterLabel();
+    document.getElementById("noteHm").textContent = `avg occupancy % · ${label}`;
+
+    // busiest cell for KPIs
+    const busiest = heat.reduce((a, b) => (b.occupancy > (a?.occupancy ?? -1) ? b : a), null);
+
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: `Avg Occupancy · ${label}`, value: fmtPct(k.avg_occupancy), sub: `across ${k.days} days`, color: PALETTE.violet });
+    kpi(box, { label: "Peak Day Occupancy", value: fmtPct(k.peak_occupancy), sub: "highest single day", color: PALETTE.rose });
+    kpi(box, { label: "Days at Capacity", value: fmtNum(k.full_days), sub: "≥ 100% occupancy", color: PALETTE.amber });
+    kpi(box, { label: "Busiest Slot", value: busiest ? hourLabel(busiest.hour) : "–", sub: busiest ? `${busiest.day}s · ${fmtPct(busiest.occupancy)}` : "", color: PALETTE.accent });
+    kpi(box, { label: "Avg Daily Vehicles", value: fmtCompact(k.avg_daily_vehicles), sub: "entries per day", color: PALETTE.green });
+
+    // heatmap grid
+    const map = {};
+    heat.forEach(r => { map[`${r.day}|${r.hour}`] = r.occupancy; });
+    let html = `<div class="hm-corner"></div>` +
+      [...Array(24).keys()].map(h => `<div class="hm-hour">${h % 3 === 0 ? hourLabel(h) : ""}</div>`).join("");
+    for (const d of DAYS) {
+      html += `<div class="hm-day">${d.slice(0, 3)}</div>`;
+      for (let h = 0; h < 24; h++) {
+        const v = map[`${d}|${h}`];
+        html += `<div class="hm-cell" style="background:${heatColor(v)}" title="${d} ${hourLabel(h)} — ${v == null ? "no data" : fmtPct(v)}"></div>`;
+      }
+    }
+    document.getElementById("heatmap").innerHTML = html;
+
+    // hourly occupancy per day type
+    const hrs = [...Array(24).keys()];
+    const types = [...new Set(hourly.map(r => r.day_type))];
+    const colors = { "Weekday": PALETTE.accent, "Weekend": PALETTE.amber, "Event Day": PALETTE.violet, "Event": PALETTE.violet, "Public Holiday": PALETTE.rose };
+    makeChart("chHourly", {
+      type: "line",
+      data: {
+        labels: hrs.map(hourLabel),
+        datasets: types.map((t, i) => ({
+          label: t,
+          data: hrs.map(h => hourly.find(r => r.hour === h && r.day_type === t)?.avg_occupancy ?? null),
+          borderColor: colors[t] || SERIES[i], borderWidth: 2, pointRadius: 0, tension: .35
+        }))
+      },
+      options: { scales: { y: { ticks: { callback: v => v + "%" } }, x: { ticks: { maxTicksLimit: 12 } } } }
+    });
+
+    // peak periods
+    makeChart("chPeak", {
+      data: {
+        labels: peaks.map(p => p.label),
+        datasets: [
+          { type: "bar", label: "Avg occupancy %", data: peaks.map(p => p.avg_occupancy), backgroundColor: hexA(PALETTE.violet, .7), borderRadius: 6, yAxisID: "y" },
+          { type: "line", label: "Avg concurrent vehicles", data: peaks.map(p => p.avg_concurrent), borderColor: PALETTE.teal, backgroundColor: PALETTE.teal, tension: .3, yAxisID: "y2" }
+        ]
+      },
+      options: {
+        scales: {
+          y: { max: 100, ticks: { callback: v => v + "%" } },
+          y2: { position: "right", grid: { drawOnChartArea: false }, ticks: { callback: v => fmtCompact(v) } }
+        }
+      }
+    });
+
+    // occupancy histogram (10% bands)
+    const bands = ["<40%","40–50%","50–60%","60–70%","70–80%","80–90%","90–100%","100%+"];
+    const counts = Array(bands.length).fill(0);
+    daily.forEach(d => {
+      const o = Number(d.occupancy || 0);
+      const i = o < 40 ? 0 : o >= 100 ? 7 : Math.min(7, Math.floor((o - 40) / 10) + 1);
+      counts[i]++;
+    });
+    makeChart("chHist", {
+      type: "bar",
+      data: {
+        labels: bands,
+        datasets: [{ label: "Days", data: counts, backgroundColor: bands.map((_, i) => i >= 6 ? hexA(PALETTE.rose, .75) : i >= 4 ? hexA(PALETTE.amber, .7) : hexA(PALETTE.accent, .65)), borderRadius: 6 }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
+
+    // trend
+    const d120 = daily.slice(-120);
+    makeChart("chTrend", {
+      type: "line",
+      data: {
+        labels: d120.map(d => fmtDate(d.date)),
+        datasets: [
+          { label: "Occupancy %", data: d120.map(d => d.occupancy), borderColor: PALETTE.violet, borderWidth: 2, pointRadius: 0, tension: .3, fill: true, backgroundColor: hexA(PALETTE.violet, .15) },
+          thresholdLine(d120.length, 85, PALETTE.rose)
+        ]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { max: 110, ticks: { callback: v => v + "%" } }, x: { ticks: { maxTicksLimit: 10 } } }
+      }
+    });
+    // entries vs exits by hour
+    makeChart("chFlow", {
+      type: "bar",
+      data: {
+        labels: flow.map(r => hourLabel(r.hour)),
+        datasets: [
+          { label: "Entries (arrivals)", data: flow.map(r => Number(r.entries)), backgroundColor: hexA(PALETTE.green, .75), borderRadius: 4 },
+          { label: "Exits (departures)", data: flow.map(r => Number(r.exits)), backgroundColor: hexA(PALETTE.rose, .7), borderRadius: 4 }
+        ]
+      },
+      options: { scales: { y: { ticks: { callback: v => fmtCompact(v) } }, x: { ticks: { maxTicksLimit: 12 } } } }
+    });
+  } catch (e) { showError(e); }
+};
+
+initPage();
+</script>
+</body>
+</html>

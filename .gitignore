@@ -1,0 +1,26 @@
+# ---- .NET build artifacts ----
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# ---- logs / temp ----
+*.log
+out.log
+err.log
+
+# ---- OS / IDE ----
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/
+
+# NOTE: database/parking_db.dump IS committed on purpose (the data the app needs).
+# NOTE: api/wwwroot/assets/chart.umd.min.js IS committed (vendored so the UI works offline).

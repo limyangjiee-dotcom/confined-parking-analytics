@@ -1,0 +1,157 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080d1a">
+<title>Real-Time · Confined Parking Analytics</title>
+<link rel="stylesheet" href="assets/style.css?v=9">
+<script src="assets/chart.umd.min.js"></script>
+<script src="assets/app.js?v=9"></script>
+</head>
+<body data-page="realtime" data-year="0"
+      data-title="Real-Time Status"
+      data-sub="Live feed from the entry/exit API · refreshes every 5 seconds">
+<main class="main">
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <div class="grid grid-23">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Entries &amp; Exits — Last 60 Minutes</div><div class="card-note">per minute</div></div>
+      <div class="chart-box"><canvas id="chTimeline"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Occupancy Now</div><div class="card-note">capacity 11,000</div></div>
+      <div class="gauge-wrap">
+        <canvas id="chGauge"></canvas>
+        <div class="gauge-center"><div class="val" id="gaugeVal">–</div><div class="lbl">of capacity</div></div>
+      </div>
+      <div class="kpi-sub" style="text-align:center" id="liveSub"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Vehicles Inside by Level</div><div class="card-note">live</div></div>
+      <div class="chart-box"><canvas id="chLevels"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Vehicle Types Inside Now</div><div class="card-note">live</div></div>
+      <div class="chart-box"><canvas id="chLiveMix"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head"><div class="card-title">Recent Activity</div><div class="card-note">last 15 movements</div></div>
+      <div class="tbl-wrap" id="tblRecent"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">Barrier-Gate Decisions</div><div class="card-note">latest reads · <a href="gate.html" style="color:var(--accent)">gate monitor</a></div></div>
+      <div class="tbl-wrap" id="tblGate"></div>
+    </div>
+  </div>
+
+  <footer class="page-foot">Run <code>python event_simulator.py</code> to generate live traffic · gate reads come from <code>plate_reader.py</code> or the Gate Monitor demo</footer>
+</main>
+
+<script>
+buildShell(); chartDefaults();
+
+async function refresh() {
+  try {
+    const [stats, occ, timeline, levels, mix, recent, gateLog] = await Promise.all([
+      api("/api/dash/live-stats"),
+      api("/api/occupancy"),
+      api("/api/dash/live-timeline"),
+      api("/api/levels"),
+      api("/api/data/live_vehicle_mix"),
+      api("/api/dash/live-recent?limit=15"),
+      api("/api/gate/log?limit=10")
+    ]);
+
+    // KPIs
+    const box = document.getElementById("kpis"); box.innerHTML = "";
+    kpi(box, { label: "Vehicles Inside", value: fmtNum(stats.inside), sub: "open tickets", color: PALETTE.accent });
+    kpi(box, { label: "Occupancy", value: fmtPct(occ.occupancyRatePct), sub: `${fmtNum(occ.occupied)} / ${fmtNum(occ.capacity)} bays`, color: PALETTE.violet });
+    kpi(box, { label: "Entries Today", value: fmtNum(stats.entries_today), sub: "since midnight", color: PALETTE.green });
+    kpi(box, { label: "Exits Today", value: fmtNum(stats.exits_today), sub: "since midnight", color: PALETTE.amber });
+    kpi(box, { label: "Revenue Today", value: fmtRM2(stats.revenue_today), sub: "collected at exits", color: PALETTE.teal });
+    kpi(box, { label: "Last Entry", value: fmtTime(stats.last_entry), sub: stats.last_entry ? fmtDateFull(stats.last_entry) : "no traffic yet", color: PALETTE.blue });
+
+    // gauge
+    const pct = occ.occupancyRatePct;
+    document.getElementById("gaugeVal").textContent = fmtPct(pct);
+    document.getElementById("liveSub").innerHTML = `<span class="pulse"></span>live · updated ${fmtTime(new Date())}`;
+    makeChart("chGauge", {
+      type: "doughnut",
+      data: { datasets: [{ data: [pct, Math.max(0, 100 - pct)], backgroundColor: [pct >= 85 ? PALETTE.rose : pct >= 60 ? PALETTE.amber : PALETTE.green, "#1a2440"], borderWidth: 0, cutout: "78%", circumference: 240, rotation: 240 }] },
+      options: { plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+    });
+
+    // 60-min timeline: build the full minute axis so gaps show as zero
+    const now = new Date(); now.setSeconds(0, 0);
+    const mins = [...Array(60).keys()].map(i => new Date(now - (59 - i) * 60000));
+    const keyOf = d => {
+      const x = new Date(d);
+      return `${x.getHours()}:${x.getMinutes()}`;
+    };
+    const em = Object.fromEntries(timeline.entries.map(r => [keyOf(r.minute), r.n]));
+    const xm = Object.fromEntries(timeline.exits.map(r => [keyOf(r.minute), r.n]));
+    makeChart("chTimeline", {
+      type: "bar",
+      data: {
+        labels: mins.map(m => m.toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" })),
+        datasets: [
+          { label: "Entries", data: mins.map(m => em[keyOf(m)] ?? 0), backgroundColor: hexA(PALETTE.green, .75), borderRadius: 3 },
+          { label: "Exits", data: mins.map(m => -(xm[keyOf(m)] ?? 0)), backgroundColor: hexA(PALETTE.rose, .7), borderRadius: 3 }
+        ]
+      },
+      options: {
+        scales: {
+          x: { stacked: true, ticks: { maxTicksLimit: 10 } },
+          y: { stacked: true, ticks: { callback: v => Math.abs(v) } }
+        },
+        plugins: { tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${Math.abs(c.parsed.y)}` } } }
+      }
+    });
+
+    // levels
+    makeChart("chLevels", {
+      type: "bar",
+      data: {
+        labels: levels.map(l => l.level || "–"),
+        datasets: [{ label: "Inside now", data: levels.map(l => l.occupied), backgroundColor: levels.map((_, i) => hexA(SERIES[i % SERIES.length], .75)), borderRadius: 6 }]
+      },
+      options: { plugins: { legend: { display: false } } }
+    });
+
+    // live vehicle mix
+    donut("chLiveMix", mix.map(m => m.label || "Unknown"), mix.map(m => Number(m.value)));
+
+    // recent activity
+    buildTable("tblRecent", [
+      { h: "Ticket", c: r => `<code>${r.ticket}</code>` },
+      { h: "Plate", c: r => r.plate },
+      { h: "Level", c: r => r.level || "–" },
+      { h: "In", c: r => fmtTime(r.entry_time) },
+      { h: "Out", c: r => r.exit_time ? fmtTime(r.exit_time) : badge("inside", "green") },
+      { h: "Fee", c: r => r.exit_time ? fmtRM2(r.fee) : "–", num: true }
+    ], recent, "No live traffic yet — start the simulator");
+
+    // gate decisions
+    buildTable("tblGate", [
+      { h: "Time", c: r => fmtTime(r.log_Time) },
+      { h: "Device", c: r => `<code>${r.device_ID}</code>` },
+      { h: "Plate", c: r => r.plate || "–" },
+      { h: "Action", c: r => badge(r.action.toUpperCase(), r.action === "open" ? "green" : "rose") },
+      { h: "Reason", c: r => `<span style="white-space:normal">${r.reason}</span>` }
+    ], gateLog, "No gate reads yet — try the Gate Monitor demo");
+  } catch (e) { showError(e); }
+}
+
+refresh(); startAutoRefresh(refresh, 5);
+</script>
+</body>
+</html>
