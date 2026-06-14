@@ -85,6 +85,9 @@ name above, user/pass → **Test → Discover → map → Sync**.
 > Say: *"My system connected to a different parking operator's system, discovered its
 > schema, mapped its fields to my model, pulled the data in, and rebuilt the analytics."*
 Then flip back to **Overview / Real-Time** to show the imported data is now analysed.
+> **Note:** after a sync the **ML forecast auto-refreshes in the background** (~1 minute) —
+> so the **Predictive Analytics** page also updates on its own, no manual step. (Configurable
+> via `Forecast.AutoRunOnSync` in `api/appsettings.json`; needs Python on the same machine.)
 
 ### ⑥ (Optional) Barrier gate — **Gate Monitor** page
 Type a plate → **Entry gate** (opens), **Entry** again (duplicate → deny), **Autopay**,

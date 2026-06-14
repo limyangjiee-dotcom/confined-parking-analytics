@@ -13,10 +13,11 @@ public class IngestionService
     private readonly string _ownCs;
     private readonly AggregationService _agg;
     private readonly IHttpClientFactory _http;
+    private readonly ForecastService _forecast;
     private static readonly JsonSerializerOptions J = new() { PropertyNameCaseInsensitive = true };
 
-    public IngestionService(IConfiguration cfg, AggregationService agg, IHttpClientFactory http)
-    { _ownCs = cfg.GetConnectionString("Default")!; _agg = agg; _http = http; }
+    public IngestionService(IConfiguration cfg, AggregationService agg, IHttpClientFactory http, ForecastService forecast)
+    { _ownCs = cfg.GetConnectionString("Default")!; _agg = agg; _http = http; _forecast = forecast; }
 
     // ---------------- config ----------------
     public async Task<(DsConfig? cfg, DateTime? lastSync, string lastStatus)> ReadConfig()
@@ -131,10 +132,14 @@ public class IngestionService
 
         int inserted = await IngestRows(rows);
         var (days, _) = await _agg.Rebuild();
+        // refresh the ML forecast in the background so the Forecast page updates too
+        var forecastStarted = _forecast.TriggerInBackground();
         var via = cfg.SourceType == "api" ? "API" : cfg.Connection!.Engine;
-        await SetStatus($"OK ({via}) — read {read}, imported {inserted} new; aggregated {days} day(s)");
+        await SetStatus($"OK ({via}) — read {read}, imported {inserted} new; aggregated {days} day(s)"
+                        + (forecastStarted ? "; forecast refreshing" : ""));
         return new(true, read, rows.Count, inserted,
-            $"Imported {inserted} new sessions via {via} and aggregated {days} day(s)");
+            $"Imported {inserted} new sessions via {via} and aggregated {days} day(s)"
+            + (forecastStarted ? ". Forecast is refreshing in the background." : "."));
     }
 
     // ---------------- DB fetch (multi-engine) ----------------
