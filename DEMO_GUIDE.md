@@ -88,6 +88,9 @@ Then flip back to **Overview / Real-Time** to show the imported data is now anal
 > **Note:** after a sync the **ML forecast auto-refreshes in the background** (~1 minute) —
 > so the **Predictive Analytics** page also updates on its own, no manual step. (Configurable
 > via `Forecast.AutoRunOnSync` in `api/appsettings.json`; needs Python on the same machine.)
+> You can also force it: on the **Predictive Analytics** page click **"Run forecast now"** —
+> it runs the model and the page refreshes when done (~1 min). Good for showing the
+> prediction update live right after connecting data.
 
 ### ⑥ (Optional) Barrier gate — **Gate Monitor** page
 Type a plate → **Entry gate** (opens), **Entry** again (duplicate → deny), **Autopay**,

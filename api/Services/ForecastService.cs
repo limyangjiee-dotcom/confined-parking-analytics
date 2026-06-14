@@ -1,10 +1,10 @@
 using System.Diagnostics;
 namespace ParkingApiPg.Services;
 
-// Launches the Python ML forecast (run_forecasts_v2.py) in the background after a
-// data sync, so the Forecast page refreshes automatically once new data arrives.
-// Fire-and-forget; a guard prevents overlapping runs. Configurable in appsettings
-// ("Forecast" section) — needs Python + the ML packages on the same machine.
+// Launches the Python ML forecast (run_forecasts_v2.py) in the background — after a
+// data sync (auto) or on demand from the "Run forecast now" button. Fire-and-forget;
+// a guard prevents overlapping runs. Configurable in appsettings ("Forecast" section).
+// Needs Python + the ML packages on the same machine.
 public class ForecastService
 {
     private readonly IConfiguration _cfg;
@@ -15,11 +15,22 @@ public class ForecastService
     public ForecastService(IConfiguration cfg, IWebHostEnvironment env, ILogger<ForecastService> log)
     { _cfg = cfg; _env = env; _log = log; }
 
-    /// <summary>Starts the forecast in the background. Returns true if a run was started.</summary>
+    public bool IsRunning => Volatile.Read(ref _running) == 1;
+    public static DateTime? LastFinishedAt { get; private set; }
+    public static bool LastOk { get; private set; }
+
+    /// <summary>Triggered after a sync — only runs if Forecast:AutoRunOnSync is true.</summary>
     public bool TriggerInBackground()
     {
         if (!_cfg.GetValue("Forecast:AutoRunOnSync", true)) return false;
-        // skip if one is already running (e.g. frequent auto-syncs)
+        return Start();
+    }
+
+    /// <summary>Triggered explicitly (e.g. the "Run forecast now" button) — always runs.</summary>
+    public bool RunNow() => Start();
+
+    private bool Start()
+    {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
             _log.LogInformation("Forecast already running — skipping this trigger.");
@@ -36,6 +47,7 @@ public class ForecastService
 
         _ = Task.Run(() =>
         {
+            bool ok = false;
             try
             {
                 var psi = new ProcessStartInfo
@@ -48,16 +60,22 @@ public class ForecastService
                     RedirectStandardError = true,
                 };
                 psi.ArgumentList.Add(script);
-                _log.LogInformation("Auto-forecast: {Python} {Script} (in {Dir})", python, script, dir);
+                _log.LogInformation("Forecast: {Python} {Script} (in {Dir})", python, script, dir);
                 using var p = Process.Start(psi);
-                if (p == null) { _log.LogWarning("Auto-forecast: failed to start process"); return; }
+                if (p == null) { _log.LogWarning("Forecast: failed to start process"); return; }
                 var stderr = p.StandardError.ReadToEnd();
                 p.WaitForExit();
-                if (p.ExitCode == 0) _log.LogInformation("Auto-forecast finished OK.");
-                else _log.LogWarning("Auto-forecast exited {Code}: {Err}", p.ExitCode, stderr);
+                ok = p.ExitCode == 0;
+                if (ok) _log.LogInformation("Forecast finished OK.");
+                else _log.LogWarning("Forecast exited {Code}: {Err}", p.ExitCode, stderr);
             }
-            catch (Exception e) { _log.LogWarning(e, "Auto-forecast launch failed"); }
-            finally { Interlocked.Exchange(ref _running, 0); }
+            catch (Exception e) { _log.LogWarning(e, "Forecast launch failed"); }
+            finally
+            {
+                LastOk = ok;
+                LastFinishedAt = DateTime.Now;
+                Interlocked.Exchange(ref _running, 0);
+            }
         });
         return true;
     }

@@ -21,6 +21,9 @@
     <span class="chip"><span class="ic" style="background:var(--violet)"></span><b>Pattern matching</b> next Tuesday ← previous Tuesdays</span>
     <span class="chip"><span class="ic" style="background:var(--amber)"></span><b>Event boost</b> auto-lifts event days</span>
     <span class="chip"><span class="ic" style="background:var(--rose)"></span><b>Confidence</b> from backtest accuracy</span>
+    <span style="flex:1"></span>
+    <span id="fcRunStatus" class="kpi-sub" style="align-self:center"></span>
+    <button class="btn" id="btnRunForecast">Run forecast now</button>
   </div>
 
   <div class="hero" id="hero"></div>
@@ -222,6 +225,40 @@ function drawHourly(date) {
     }
   });
 }
+
+// ---------- "Run forecast now" button ----------
+const fcBtn = document.getElementById("btnRunForecast");
+const fcStatus = document.getElementById("fcRunStatus");
+fcBtn.onclick = async () => {
+  fcBtn.disabled = true;
+  const orig = fcBtn.textContent;
+  fcBtn.textContent = "Forecasting…";
+  fcStatus.textContent = "Running the ML forecast (~1 min)…";
+  try {
+    const r = await apiPost("/api/forecast/run", {});
+    if (r.started === false && !r.running) { throw new Error(r.message || "could not start"); }
+    const startedAt = Date.now();
+    const poll = setInterval(async () => {
+      let s;
+      try { s = await api("/api/forecast/run-status"); } catch { return; }
+      if (!s.running) {
+        clearInterval(poll);
+        await init();                       // reload the predictions onto the page
+        fcStatus.textContent = (s.lastOk === false)
+          ? "Forecast finished with warnings — check the server log."
+          : "Forecast updated ✓ " + fmtTime(new Date());
+        fcBtn.disabled = false; fcBtn.textContent = orig;
+      } else if (Date.now() - startedAt > 150000) {
+        clearInterval(poll);
+        fcStatus.textContent = "Still running — it will refresh on next load.";
+        fcBtn.disabled = false; fcBtn.textContent = orig;
+      }
+    }, 3000);
+  } catch (e) {
+    fcStatus.textContent = "Could not start: " + (e.message || e);
+    fcBtn.disabled = false; fcBtn.textContent = orig;
+  }
+};
 
 init();
 </script>
