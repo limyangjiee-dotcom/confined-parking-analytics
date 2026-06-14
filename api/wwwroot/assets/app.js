@@ -2,11 +2,13 @@
 const API_KEY = "fyp-demo-key-2025";
 const CAPACITY = 11000;
 
+/* orange-led palette tuned for a light background */
 const PALETTE = {
-  accent: "#38bdf8", violet: "#8b5cf6", green: "#34d399",
-  amber: "#fbbf24", rose: "#fb7185", blue: "#60a5fa", teal: "#2dd4bf"
+  accent: "#f97316", violet: "#7c3aed", green: "#10b981",
+  amber: "#f59e0b", rose: "#f43f5e", blue: "#3b82f6", teal: "#14b8a6",
+  ink: "#1f2937"
 };
-const SERIES = [PALETTE.accent, PALETTE.violet, PALETTE.green, PALETTE.amber, PALETTE.rose, PALETTE.blue, PALETTE.teal];
+const SERIES = [PALETTE.accent, PALETTE.blue, PALETTE.violet, PALETTE.green, PALETTE.amber, PALETTE.teal, PALETTE.rose];
 
 async function api(path) {
   const r = await fetch(path, { headers: { "X-Api-Key": API_KEY } });
@@ -55,8 +57,8 @@ function buildShell() {
 
   const navHtml = NAV.map(n =>
     `<a href="${n.href}" class="${n.key === page ? "active" : ""}"${n.key === page ? ' aria-current="page"' : ""}>
-       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${n.icon}</svg>
-       ${n.label}</a>`).join("");
+       <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${n.icon}</svg></span>
+       <span class="nav-label">${n.label}</span></a>`).join("");
 
   body.insertAdjacentHTML("afterbegin", `
     <aside class="sidebar">
@@ -74,11 +76,16 @@ function buildShell() {
   const main = document.querySelector(".main");
   main.insertAdjacentHTML("afterbegin", `
     <div class="topbar">
-      <div>
+      <div class="topbar-head">
+        <div class="crumb">Dashboards <span>›</span> ${body.dataset.title || ""}</div>
         <h1 class="page-title">${body.dataset.title || ""}</h1>
         <p class="page-sub">${body.dataset.sub || ""}</p>
       </div>
       <div class="topbar-right">
+        <div class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+          <input type="search" id="topSearch" placeholder="Search…" aria-label="Search" autocomplete="off">
+        </div>
         ${hasYear ? `<div class="filter-stack">
           <select class="month-select" id="rangePreset" aria-label="Date range preset">
             ${RANGE_PRESETS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
@@ -87,14 +94,24 @@ function buildShell() {
           <span style="color:var(--text-faint)">–</span>
           <input type="date" class="month-select date-input" id="dateTo" aria-label="To date">
         </div>` : ""}
-        <div class="clock" id="clock"></div>
+        <button class="btn ghost" id="btnRefresh">Refresh</button>
+        <div class="profile">
+          <div class="avatar" aria-hidden="true">A</div>
+          <div><div class="pf-name">Admin</div><div class="pf-role">Sign in</div></div>
+        </div>
       </div>
     </div>`);
 
-  // clock
-  const tick = () => document.getElementById("clock").textContent =
-    new Date().toLocaleString("en-MY", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  tick(); setInterval(tick, 1000);
+  // refresh button — re-runs the page's data load
+  document.getElementById("btnRefresh").addEventListener("click", () => {
+    if (window.initPage) window.initPage(); else location.reload();
+  });
+  // search filters the sidebar nav (simple, in-page)
+  document.getElementById("topSearch").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll(".nav a").forEach(a =>
+      a.style.display = a.textContent.toLowerCase().includes(q) ? "" : "none");
+  });
 
   // API health check
   api("/api/occupancy")
@@ -175,19 +192,20 @@ function startAutoRefresh(refreshFn, seconds = 60) {
 
 /* ---------- Chart.js defaults & factory ---------- */
 function chartDefaults() {
-  Chart.defaults.color = "#8b9bb8";
-  Chart.defaults.borderColor = "rgba(255,255,255,.055)";
-  Chart.defaults.font.family = '"Segoe UI", system-ui, sans-serif';
+  Chart.defaults.color = "#6b7280";
+  Chart.defaults.borderColor = "#eef0f3";
+  Chart.defaults.font.family = '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif';
   Chart.defaults.font.size = 11.5;
   Chart.defaults.plugins.legend.labels.boxWidth = 12;
   Chart.defaults.plugins.legend.labels.boxHeight = 12;
   Chart.defaults.plugins.legend.labels.usePointStyle = true;
   Chart.defaults.plugins.legend.labels.pointStyle = "circle";
-  Chart.defaults.plugins.tooltip.backgroundColor = "#182238";
-  Chart.defaults.plugins.tooltip.borderColor = "#2a3a60";
-  Chart.defaults.plugins.tooltip.borderWidth = 1;
-  Chart.defaults.plugins.tooltip.padding = 10;
-  Chart.defaults.plugins.tooltip.cornerRadius = 8;
+  Chart.defaults.plugins.tooltip.backgroundColor = "#1f2937";
+  Chart.defaults.plugins.tooltip.titleColor = "#fff";
+  Chart.defaults.plugins.tooltip.bodyColor = "#e5e7eb";
+  Chart.defaults.plugins.tooltip.borderWidth = 0;
+  Chart.defaults.plugins.tooltip.padding = 11;
+  Chart.defaults.plugins.tooltip.cornerRadius = 10;
   Chart.defaults.animation = false;
 }
 
@@ -205,7 +223,7 @@ function makeChart(id, config) {
 function donut(id, labels, values, { cutout = "62%", colors = SERIES, fmt = fmtNum } = {}) {
   return makeChart(id, {
     type: "doughnut",
-    data: { labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length).map(c => hexA(c, .8)), borderColor: "#0b1120", borderWidth: 2 }] },
+    data: { labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length).map(c => hexA(c, .9)), borderColor: "#fff", borderWidth: 3 }] },
     options: {
       cutout,
       plugins: {
@@ -237,13 +255,13 @@ const hideThreshold = { legend: { labels: { filter: i => i.text !== "__threshold
 
 /* ---------- heatmap color scale (0-100% occupancy) ---------- */
 function heatColor(v) {
-  if (v == null) return "#141d33";
+  if (v == null) return "#f1f3f6";
   const stops = [
-    [0,   [20, 29, 51]],
-    [35,  [23, 78, 134]],
-    [60,  [34, 148, 189]],
-    [80,  [251, 191, 36]],
-    [100, [244, 63, 94]]
+    [0,   [243, 244, 246]],   // light gray (low)
+    [35,  [254, 224, 190]],   // pale orange
+    [60,  [253, 176, 104]],   // orange
+    [80,  [249, 115, 22]],    // vivid orange
+    [100, [220, 38, 38]]      // red (high)
   ];
   const x = Math.max(0, Math.min(100, v));
   for (let i = 1; i < stops.length; i++) {
@@ -254,13 +272,15 @@ function heatColor(v) {
       return `rgb(${c[0]},${c[1]},${c[2]})`;
     }
   }
-  return "rgb(244,63,94)";
+  return "rgb(220,38,38)";
 }
 
 /* ---------- KPI + table + badge helpers ---------- */
-function kpi(el, { label, value, sub = "", color = PALETTE.accent }) {
+const KPI_ICON = '<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/>';
+function kpi(el, { label, value, sub = "", color = PALETTE.accent, icon = KPI_ICON }) {
   el.insertAdjacentHTML("beforeend", `
     <div class="kpi" style="--kpi-color:${color}">
+      <div class="kpi-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg></div>
       <div class="kpi-label">${label}</div>
       <div class="kpi-value">${value}</div>
       <div class="kpi-sub">${sub}</div>

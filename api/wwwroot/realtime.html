@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#080d1a">
+<meta name="theme-color" content="#f2f4f7">
 <title>Real-Time · Confined Parking Analytics</title>
-<link rel="stylesheet" href="assets/style.css?v=9">
+<link rel="stylesheet" href="assets/style.css?v=11">
 <script src="assets/chart.umd.min.js"></script>
-<script src="assets/app.js?v=9"></script>
+<script src="assets/app.js?v=11"></script>
 </head>
 <body data-page="realtime" data-year="0"
       data-title="Real-Time Status"
@@ -86,7 +86,7 @@ async function refresh() {
     document.getElementById("liveSub").innerHTML = `<span class="pulse"></span>live · updated ${fmtTime(new Date())}`;
     makeChart("chGauge", {
       type: "doughnut",
-      data: { datasets: [{ data: [pct, Math.max(0, 100 - pct)], backgroundColor: [pct >= 85 ? PALETTE.rose : pct >= 60 ? PALETTE.amber : PALETTE.green, "#1a2440"], borderWidth: 0, cutout: "78%", circumference: 240, rotation: 240 }] },
+      data: { datasets: [{ data: [pct, Math.max(0, 100 - pct)], backgroundColor: [pct >= 85 ? PALETTE.rose : pct >= 60 ? PALETTE.amber : PALETTE.green, "#edeff3"], borderWidth: 0, cutout: "78%", circumference: 240, rotation: 240 }] },
       options: { plugins: { legend: { display: false }, tooltip: { enabled: false } } }
     });
 
