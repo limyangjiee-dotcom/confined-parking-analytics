@@ -250,9 +250,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .gate-result.open { display: block; border-color: #b7e9d3; background: #e7f7f0; color: #065f46; }
 .gate-result.deny { display: block; border-color: #ffd0d6; background: #ffe9ec; color: #9f1239; }
 
-/* ---------------- footer ---------------- */
-.page-foot { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--text-faint); font-size: 11.5px; text-align: center; }
-
 /* ---------------- responsive ---------------- */
 @media (max-width: 1280px) { .fc-strip { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 1180px) { .grid-3 { grid-template-columns: 1fr 1fr; } .grid-23, .grid-32 { grid-template-columns: 1fr; } }
