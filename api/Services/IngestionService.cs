@@ -1,13 +1,13 @@
-using System.Data.Common;
 using System.Text.Json;
 using Npgsql;
+using NpgsqlTypes;
 using ParkingApiPg.Models;
 namespace ParkingApiPg.Services;
 
-// Pulls parking sessions from an external source — a database
-// (PostgreSQL / MySQL / SQL Server) OR a REST API — normalizes them, loads
-// them into Live_Parking, and rebuilds the analytics summaries. Shared by the
-// manual /api/connector/sync endpoint and the scheduled background sync.
+// Pulls parking sessions from an external parking system's REST API,
+// normalizes them, loads them into Live_Parking, and rebuilds the analytics
+// summaries. Shared by the manual /api/connector/sync endpoint and the
+// scheduled background sync.
 public class IngestionService
 {
     private readonly string _ownCs;
@@ -32,19 +32,12 @@ public class IngestionService
         var lastStatus = rd.GetString(2);
         DsConfig? cfg = null;
         try { cfg = JsonSerializer.Deserialize<DsConfig>(json, J); } catch { }
-        var configured = cfg != null && (cfg.SourceType == "api"
-            ? !string.IsNullOrWhiteSpace(cfg.Api?.Url)
-            : !string.IsNullOrWhiteSpace(cfg.Connection?.Database));
+        var configured = cfg != null && !string.IsNullOrWhiteSpace(cfg.Api?.Url);
         return (configured ? cfg : null, lastSync, lastStatus);
     }
 
     public async Task SaveConfig(DsConfig cfg)
     {
-        if (cfg.Connection?.Password == "********")
-        {
-            var (existing, _, _) = await ReadConfig();
-            if (existing?.Connection != null) cfg = cfg with { Connection = cfg.Connection with { Password = existing.Connection.Password } };
-        }
         if (cfg.Api?.AuthValue == "********")
         {
             var (existing, _, _) = await ReadConfig();
@@ -65,19 +58,10 @@ public class IngestionService
     {
         try
         {
-            if (cfg.SourceType == "api")
-            {
-                var recs = await FetchApiRecords(cfg.Api!);
-                return (true, $"Connected to API — {recs.Count} record(s) returned",
-                        new { sampleKeys = recs.FirstOrDefault().ValueKind == JsonValueKind.Object
-                            ? recs.First().EnumerateObject().Select(p => p.Name).ToArray() : Array.Empty<string>() });
-            }
-            await using var c = ConnectorDb.Create(cfg.Connection!);
-            await c.OpenAsync();
-            await using var cmd = c.CreateCommand();
-            cmd.CommandText = ConnectorDb.VersionSql(cfg.Connection!.Engine);
-            var v = (await cmd.ExecuteScalarAsync())?.ToString();
-            return (true, "Connected to external parking database", new { server = v });
+            var recs = await FetchApiRecords(cfg.Api!);
+            return (true, $"Connected to API — {recs.Count} record(s) returned",
+                    new { sampleKeys = recs.FirstOrDefault().ValueKind == JsonValueKind.Object
+                        ? recs.First().EnumerateObject().Select(p => p.Name).ToArray() : Array.Empty<string>() });
         }
         catch (Exception e) { return (false, e.Message, null); }
     }
@@ -87,27 +71,11 @@ public class IngestionService
     {
         try
         {
-            if (cfg.SourceType == "api")
-            {
-                var recs = await FetchApiRecords(cfg.Api!);
-                var cols = recs.FirstOrDefault().ValueKind == JsonValueKind.Object
-                    ? recs.First().EnumerateObject().Select(p => (object)new { name = p.Name, type = p.Value.ValueKind.ToString().ToLower() }).ToList()
-                    : new List<object>();
-                return (true, $"{recs.Count} record(s)", new[] { new { table = "(API response)", columns = cols } });
-            }
-            await using var c = ConnectorDb.Create(cfg.Connection!);
-            await c.OpenAsync();
-            await using var cmd = c.CreateCommand();
-            cmd.CommandText = ConnectorDb.DiscoverSql(cfg.Connection!.Engine);
-            await using var rd = await cmd.ExecuteReaderAsync();
-            var tables = new Dictionary<string, List<object>>();
-            while (await rd.ReadAsync())
-            {
-                var t = rd.GetString(0);
-                if (!tables.TryGetValue(t, out var cols)) tables[t] = cols = new();
-                cols.Add(new { name = rd.GetString(1), type = rd.GetString(2) });
-            }
-            return (true, $"{tables.Count} table(s)", tables.Select(kv => new { table = kv.Key, columns = kv.Value }));
+            var recs = await FetchApiRecords(cfg.Api!);
+            var cols = recs.FirstOrDefault().ValueKind == JsonValueKind.Object
+                ? recs.First().EnumerateObject().Select(p => (object)new { name = p.Name, type = p.Value.ValueKind.ToString().ToLower() }).ToList()
+                : new List<object>();
+            return (true, $"{recs.Count} record(s)", new[] { new { table = "(API response)", columns = cols } });
         }
         catch (Exception e) { return (false, e.Message, Array.Empty<object>()); }
     }
@@ -121,7 +89,7 @@ public class IngestionService
         int read;
         try
         {
-            rows = cfg.SourceType == "api" ? await FetchApiRows(cfg) : await FetchDbRows(cfg);
+            rows = await FetchApiRows(cfg);
             read = rows.Count;
         }
         catch (Exception e)
@@ -134,45 +102,11 @@ public class IngestionService
         var (days, _) = await _agg.Rebuild();
         // refresh the ML forecast in the background so the Forecast page updates too
         var forecastStarted = _forecast.TriggerInBackground();
-        var via = cfg.SourceType == "api" ? "API" : cfg.Connection!.Engine;
-        await SetStatus($"OK ({via}) — read {read}, imported {inserted} new; aggregated {days} day(s)"
+        await SetStatus($"OK (API) — read {read}, imported {inserted} new; aggregated {days} day(s)"
                         + (forecastStarted ? "; forecast refreshing" : ""));
         return new(true, read, rows.Count, inserted,
-            $"Imported {inserted} new sessions via {via} and aggregated {days} day(s)"
+            $"Imported {inserted} new sessions via API and aggregated {days} day(s)"
             + (forecastStarted ? ". Forecast is refreshing in the background." : "."));
-    }
-
-    // ---------------- DB fetch (multi-engine) ----------------
-    private async Task<List<SessionRow>> FetchDbRows(DsConfig cfg)
-    {
-        var conn = cfg.Connection!; var m = cfg.Mapping; var eng = conn.Engine;
-        if (!ConnectorSupport.Ident(m.SourceTable) || !ConnectorSupport.Ident(m.Plate) || !ConnectorSupport.Ident(m.EntryTime))
-            throw new Exception("Mapping needs a valid source table, plate column and entry-time column");
-
-        string Col(string s) => ConnectorSupport.Ident(s) ? ConnectorDb.Q(eng, s) : "NULL";
-        var sql = $@"SELECT {ConnectorDb.Q(eng, m.Plate)} AS plate, {ConnectorDb.Q(eng, m.EntryTime)} AS entry,
-                            {Col(m.ExitTime)} AS exitt, {Col(m.Fee)} AS fee,
-                            {Col(m.Level)} AS lvl, {Col(m.VehicleType)} AS vtype
-                     FROM {ConnectorDb.Q(eng, m.SourceTable)}";
-
-        await using var c = ConnectorDb.Create(conn);
-        await c.OpenAsync();
-        await using var cmd = c.CreateCommand();
-        cmd.CommandText = sql;
-        await using var rd = await cmd.ExecuteReaderAsync();
-        var rows = new List<SessionRow>();
-        while (await rd.ReadAsync())
-        {
-            if (await rd.IsDBNullAsync(0) || await rd.IsDBNullAsync(1)) continue;
-            rows.Add(new SessionRow(
-                rd.GetValue(0)?.ToString() ?? "",
-                Convert.ToDateTime(rd.GetValue(1)),
-                await rd.IsDBNullAsync(2) ? null : Convert.ToDateTime(rd.GetValue(2)),
-                await rd.IsDBNullAsync(3) ? 0m : Convert.ToDecimal(rd.GetValue(3)),
-                await rd.IsDBNullAsync(4) ? "" : rd.GetValue(4).ToString() ?? "",
-                await rd.IsDBNullAsync(5) ? "Car" : rd.GetValue(5).ToString() ?? "Car"));
-        }
-        return rows;
     }
 
     // ---------------- API fetch ----------------
@@ -180,7 +114,7 @@ public class IngestionService
     {
         if (string.IsNullOrWhiteSpace(api.Url)) throw new Exception("API URL is required");
         var client = _http.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(15);
+        client.Timeout = TimeSpan.FromSeconds(120);   // allow large operator-history pulls
         using var req = new HttpRequestMessage(
             api.Method?.ToUpper() == "POST" ? HttpMethod.Post : HttpMethod.Get, api.Url);
         if (!string.IsNullOrWhiteSpace(api.AuthHeader))
@@ -244,32 +178,54 @@ public class IngestionService
     }
 
     // ---------------- shared ingest ----------------
+    // Bulk-load the batch via binary COPY into a temp table, then do ONE
+    // set-based, deduped insert into Live_Parking. This scales to large
+    // operator histories (hundreds of thousands of rows) far better than
+    // row-by-row inserts.
     private async Task<int> IngestRows(List<SessionRow> rows)
     {
+        if (rows.Count == 0) return 0;
         await using var own = new NpgsqlConnection(_ownCs);
         await own.OpenAsync();
-        int inserted = 0;
-        foreach (var r in rows)
+
+        await using (var create = new NpgsqlCommand(
+            @"CREATE TEMP TABLE _imp (plate text, entry timestamp, exitt timestamp NULL,
+                                      fee numeric, lvl text, vtype text)", own))
+            await create.ExecuteNonQueryAsync();
+
+        await using (var importer = await own.BeginBinaryImportAsync(
+            "COPY _imp (plate, entry, exitt, fee, lvl, vtype) FROM STDIN (FORMAT BINARY)"))
         {
-            await using var ins = new NpgsqlCommand(@"
-                INSERT INTO ""Live_Parking""
-                  (""Ticket_ID"",""Vehicle_ID"",""Entry_Time"",""Exit_Time"",""Parking_Fee"",
-                   ""Parking_Level"",""Vehicle_Type"",""Payment_Type"",""Parking_Duration_Hours"",
-                   ""Event_Status"",""Event_Name"")
-                SELECT @tid,@plate,@entry,@exit,@fee,@level,@vtype,'Imported',@dur,'Non-Event Day',''
-                WHERE NOT EXISTS (SELECT 1 FROM ""Live_Parking""
-                                  WHERE ""Vehicle_ID""=@plate AND ""Entry_Time""=@entry)", own);
-            ins.Parameters.AddWithValue("tid", "IMP" + Guid.NewGuid().ToString("N")[..8].ToUpper());
-            ins.Parameters.AddWithValue("plate", r.Plate);
-            ins.Parameters.AddWithValue("entry", r.Entry);
-            ins.Parameters.AddWithValue("exit", (object?)r.Exit ?? DBNull.Value);
-            ins.Parameters.AddWithValue("fee", r.Fee);
-            ins.Parameters.AddWithValue("level", r.Level);
-            ins.Parameters.AddWithValue("vtype", r.VehicleType);
-            ins.Parameters.AddWithValue("dur", r.Exit.HasValue ? (object)(r.Exit.Value - r.Entry).TotalHours : DBNull.Value);
-            inserted += await ins.ExecuteNonQueryAsync();
+            foreach (var r in rows)
+            {
+                await importer.StartRowAsync();
+                await importer.WriteAsync(r.Plate, NpgsqlDbType.Text);
+                await importer.WriteAsync(r.Entry, NpgsqlDbType.Timestamp);
+                if (r.Exit.HasValue) await importer.WriteAsync(r.Exit.Value, NpgsqlDbType.Timestamp);
+                else await importer.WriteNullAsync();
+                await importer.WriteAsync(r.Fee, NpgsqlDbType.Numeric);
+                await importer.WriteAsync(r.Level, NpgsqlDbType.Text);
+                await importer.WriteAsync(r.VehicleType, NpgsqlDbType.Text);
+            }
+            await importer.CompleteAsync();
         }
-        return inserted;
+
+        // dedup within the batch (plate+entry) and against rows already imported
+        await using var ins = new NpgsqlCommand(@"
+            INSERT INTO ""Live_Parking""
+              (""Ticket_ID"",""Vehicle_ID"",""Entry_Time"",""Exit_Time"",""Parking_Fee"",
+               ""Parking_Level"",""Vehicle_Type"",""Payment_Type"",""Parking_Duration_Hours"",
+               ""Event_Status"",""Event_Name"")
+            SELECT 'IMP' || upper(substr(md5(random()::text || d.plate || d.entry::text), 1, 8)),
+                   d.plate, d.entry, d.exitt, d.fee, d.lvl, d.vtype, 'Imported',
+                   CASE WHEN d.exitt IS NULL THEN NULL
+                        ELSE EXTRACT(EPOCH FROM (d.exitt - d.entry)) / 3600.0 END,
+                   'Non-Event Day', ''
+            FROM (SELECT DISTINCT ON (plate, entry) plate, entry, exitt, fee, lvl, vtype
+                  FROM _imp ORDER BY plate, entry) d
+            WHERE NOT EXISTS (SELECT 1 FROM ""Live_Parking"" lp
+                              WHERE lp.""Vehicle_ID"" = d.plate AND lp.""Entry_Time"" = d.entry)", own);
+        return await ins.ExecuteNonQueryAsync();
     }
 
     public async Task SetStatus(string status)

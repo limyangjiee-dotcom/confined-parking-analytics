@@ -2,58 +2,58 @@
 
 **Architecture:** this platform is an **analytics layer**. It does **not** own the
 gate, barrier or ANPR camera — those belong to the parking system. The platform
-**connects to that parking system's database**, discovers its schema, maps its
-fields to our analytics model, and **pulls the data in for analysis**.
+**connects to that parking system's REST API**, discovers the fields it returns,
+maps them to our analytics model, and **pulls the data in for analysis**.
 
 ```
   External parking system            This analytics platform
   ┌───────────────────────┐          ┌──────────────────────────────┐
-  │ gate / barrier / ANPR │  data    │  Data Source connector       │
-  │ camera  →  ITS database├─────────►│  test → discover → map → sync│
-  │ (any schema, any names)│  fetch   │  → Live_Parking → dashboards │
-  └───────────────────────┘          │  → rollup → summaries → ML   │
+  │ gate / barrier / ANPR │  JSON    │  Data Source connector       │
+  │ camera  →  ITS REST API├─────────►│  test → discover → map → sync│
+  │ (any field names)      │  pull    │  → Live_Parking → dashboards │
+  └───────────────────────┘          │  → aggregate → summaries → ML │
                                       └──────────────────────────────┘
 ```
 
 ## Endpoints (`/api/connector`, master `X-Api-Key`)
-- `POST /test` — open a connection to the external DB, return server version.
-- `POST /discover` — read `information_schema`, return its tables + columns.
-- `GET /config` / `POST /config` — load / save connection + field mapping (password stored server-side, masked on read).
-- `POST /sync` — read the mapped columns from the external table, insert new rows into `Live_Parking` (`Payment_Type='Imported'`), deduped on (plate, entry-time).
+- `POST /test` — call the external API, report how many records came back + their field names.
+- `POST /discover` — fetch a sample and return the JSON fields so you can map them.
+- `GET /config` / `POST /config` — load / save the API config + field mapping (auth value stored server-side, masked on read).
+- `POST /sync` — pull the sessions, insert new rows into `Live_Parking` (`Payment_Type='Imported'`), deduped on (plate, entry-time), then rebuild the analytics summaries and refresh the ML forecast.
 - `GET /status` — last sync time/status, imported total, preview rows.
 
-Implemented for **PostgreSQL** sources. The `engine` field carries the type so
-MySQL / SQL Server can be added by registering their ADO.NET provider
-(MySqlConnector / Microsoft.Data.SqlClient) — the rest of the flow is unchanged.
-
 ## Web page
-**Data Source** in the sidebar (`connect.html`): enter the external DB details →
-**Test connection** → **Discover tables** (auto-guesses the field mapping from
-column names) → adjust mapping → **Save** → **Sync data now**. Imported sessions
-then appear on Real-Time and, via the existing `rollup_live.py`, in the analytics
-and forecast.
+**Data Source** in the sidebar (`connect.html`): enter the API endpoint →
+**Test connection** → **Discover fields** (auto-guesses the mapping from the field
+names) → adjust mapping → **Save** → **Sync data now**. Imported sessions then flow
+into `Live_Parking`, the aggregation rebuilds the summary tables, and the ML
+forecast retrains — so every analytics page (and the 7-day forecast) reflects the
+connected operator's data automatically.
 
-## Demo — mock third-party parking system
-`mock_parking_system.py` creates a **separate** database `ext_parking_demo` with a
-vendor-shaped table `anpr_sessions` (foreign column names: `lpr_plate`,
-`gate_in_at`, `gate_out_at`, `paid_amount`, `deck_code`, `vehicle_class`) and ~120
-sample sessions. This stands in for another vendor's system.
+## Demo — mock third-party parking system (REST API)
+`mock_parking_api.py` stands in for a vendor's parking system exposing its sessions
+over HTTP. It serves the operator's **existing history** (complete past days at full
+volume) so that after you connect + sync, the forecast visibly reflects this
+operator's data.
 
 ```
-python mock_parking_system.py        # create + seed the external DB
-# then in the web app -> Data Source:
-#   host=localhost port=5432 db=ext_parking_demo user=postgres pass=parking123
-#   Discover -> anpr_sessions -> mapping auto-fills -> Save -> Sync
+python mock_parking_api.py            # serves http://localhost:8900/api/sessions
+
+# then in the web app -> Data Source (REST API):
+#   URL          http://localhost:8900/api/sessions
+#   Method       GET
+#   Records path data
+#   Auth header  X-Api-Key   /   parking-vendor-key
+#   Discover  -> maps lpr->plate, ts_in->entry, ts_out->exit, paid->fee,
+#                deck->level, klass->vehicle type  -> Save -> Sync
+
 python _cleanup_imported.py           # optional: remove imported demo rows
 ```
 
-Verified end-to-end (2026-06-13): test → discover (found `anpr_sessions`) →
-auto-map → sync imported 120 sessions → re-sync deduped to 0 → `/api/occupancy`
-and the Real-Time page reflect the imported data.
+Tuning: add `?days=28&per_day=12000` to the URL to change how much history the
+operator "has" — more complete days = a bigger, more visible forecast shift.
 
 ## Production notes (scope-honest)
-- Password is stored in `Data_Source_Config` as text for the demo; encrypt or use a
-  secrets store in production.
-- Sync is manual (button) / on-demand; schedule it (Task Scheduler, like the rollup)
-  for continuous ingestion, with an incremental high-water mark on entry-time.
-- Single external source (one config row); multi-source/multi-tenant is future work.
+- The auth value is stored in `Data_Source_Config` as text for the demo; use a secrets store in production.
+- Sync is manual (button) / scheduled (auto-sync interval on the Data Source page); for very large histories add an incremental high-water mark on entry-time.
+- Single external source (one config row); multi-source / multi-tenant is future work.

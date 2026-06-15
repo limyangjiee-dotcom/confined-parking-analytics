@@ -41,14 +41,30 @@ public class AggregationService
                ""Entry_Time""::date AS d, extract(hour FROM ""Entry_Time"")::int AS h
         FROM ""Live_Parking"";
 
+        -- per-hour arrivals / revenue / avg-duration (set-based GROUP BY)
+        CREATE TEMP TABLE _arr ON COMMIT DROP AS
+        SELECT d, h, count(*)::int AS arrivals,
+               COALESCE(sum(fee),0)::numeric AS hrev,
+               avg(dur) FILTER (WHERE dur IS NOT NULL)::numeric AS hdur
+        FROM _sess GROUP BY d, h;
+
+        -- per-hour concurrency: expand each session into the hour buckets it
+        -- occupies (entry hour .. exit hour) and count. O(rows × hours/session),
+        -- far cheaper than a per-(day,hour) correlated subquery over all sessions.
+        CREATE TEMP TABLE _occ ON COMMIT DROP AS
+        SELECT gs::date AS d, extract(hour FROM gs)::int AS h, count(*)::int AS concurrent
+        FROM _sess s
+        CROSS JOIN LATERAL generate_series(date_trunc('hour', s.t_in),
+                                           date_trunc('hour', s.t_out),
+                                           interval '1 hour') AS gs
+        GROUP BY 1, 2;
+
         CREATE TEMP TABLE _conc ON COMMIT DROP AS
-        SELECT days.d AS d, g.h AS h,
-          (SELECT count(*) FROM _sess s WHERE s.t_in < (days.d + (g.h+1)*interval '1 hour')
-                                          AND s.t_out > (days.d + g.h*interval '1 hour'))::int AS concurrent,
-          (SELECT count(*) FROM _sess s WHERE s.d=days.d AND s.h=g.h)::int AS arrivals,
-          (SELECT COALESCE(sum(s.fee),0) FROM _sess s WHERE s.d=days.d AND s.h=g.h)::numeric AS hrev,
-          (SELECT avg(s.dur) FROM _sess s WHERE s.d=days.d AND s.h=g.h AND s.dur IS NOT NULL)::numeric AS hdur
-        FROM (SELECT DISTINCT d FROM _sess) days CROSS JOIN generate_series(0,23) AS g(h);
+        SELECT COALESCE(a.d, o.d) AS d, COALESCE(a.h, o.h) AS h,
+               COALESCE(o.concurrent, 0) AS concurrent,
+               COALESCE(a.arrivals, 0) AS arrivals,
+               COALESCE(a.hrev, 0) AS hrev, a.hdur AS hdur
+        FROM _arr a FULL OUTER JOIN _occ o ON a.d = o.d AND a.h = o.h;
 
         -- remove existing rows for exactly the dates we are about to rebuild
         DELETE FROM ""Daily_Summary""       WHERE ""Entry_Date"" IN (SELECT DISTINCT d FROM _sess);
@@ -109,6 +125,7 @@ public class AggregationService
 
         await using (var cmd = new NpgsqlCommand(sql, c, tx))
         {
+            cmd.CommandTimeout = 300;   // large operator histories can take a while
             cmd.Parameters.AddWithValue("cap", _settings.Capacity);
             await cmd.ExecuteNonQueryAsync();
         }

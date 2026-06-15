@@ -1,128 +1,92 @@
-# FYP Project Status — Confined Parking Data Analytics (Handoff)
+# FYP Project Status — Confined Parking Data Analytics
 
 ## Project
 - **FYP T711641** — "Building Data Analytics for Confined Parking Data using BI Tools."
-- **Virtual target:** Mid Valley Megamall, Kuala Lumpur (**11,000 bays**).
-- **Tariff calibration (real):** free first 15 min; weekday RM2 first 3 hrs, +RM1 hr 3-4, +RM2.50/hr after; flat **RM2** on Fri/weekend/public holiday.
-- **Deliverables:** model, BI reports, web-based prototype, real-time, API — ALL built.
+- **Virtual target:** a ~**11,000-bay** confined (multi-storey) carpark.
+- **Tariff the synthetic data is calibrated to (real):** free first 15 min; weekday RM2 first 3 hrs, +RM1 hr 3–4, +RM2.50/hr after; flat **RM2** on Fri/weekend/public holiday.
+- **Deliverables:** ML forecast model, BI reports, web prototype, real-time pipeline, external-system integration — all built.
 
-## ⚡ Current state & repo (updated 2026-06-14)
-- **Everything now lives in ONE git repo = the source of truth:** `C:\FYP\parking-analytics-fyp\`
-  (branch `main`, ~8 commits, NOT pushed to GitHub yet). Old folders (`C:\FYP\ParkingApiPg_PostgreSQL`,
-  `C:\FYP\prediction_v2`, etc.) are OBSOLETE — do not edit. Layout: `api/` (ASP.NET + dashboard `api/wwwroot`),
-  `ml/`, `scripts/`, `connector_demo/`, `gate_demo/`, `database/parking_db.dump` (+restore), `docs/`, `powerbi/`,
-  `README.md`, `DEMO_GUIDE.md`. Full handoff: desktop `FYP2\HANDOFF_FOR_NEXT_SESSION.md`.
-- **Latest changes since the connector/MySQL work (all committed to the repo):**
-  1. **Vehicle types cleaned to ONLY Car + Motorcycle** (DB + mock generators; van/lorry were demo-import artifacts).
-  2. **Auto-forecast on sync** — `Services/ForecastService.cs` runs `ml/run_forecasts_v2.py` in the background
-     after every connector sync, so the Forecast page refreshes itself (~1 min). Config in appsettings `Forecast` section.
-  3. **"Run forecast now" button** on the Predictive Analytics page (`POST /api/forecast/run`, `GET /api/forecast/run-status`).
-  4. **Soft-UI / SaaS redesign** — light gray bg, white cards, orange accent, charcoal last-KPI, white-pill active
-     nav with orange icon block, search + Refresh + profile topbar. Pure restyle of `wwwroot/assets/style.css`+`app.js`
-     (+ KPI icon badges, light chart theme, orange/light heatmap). All charts/functions unchanged. Assets at `?v=11`.
-  5. **Per-page footer captions removed** from all 10 pages.
-- **Run:** `cd C:\FYP\parking-analytics-fyp\api && dotnet run --urls http://localhost:5000`. Build gotcha: stop the
-  running app first (`Get-Process ParkingApiPg | Stop-Process -Force`) — Windows locks the DLL.
-- **Outstanding:** user pushes to GitHub + writes the FYP report; optional SQL Server live test / reset-to-empty demo script.
+## Source of truth
+Everything lives in **one git repo: `C:\FYP\parking-analytics-fyp\`** (branch `main`). Layout:
+`api/` (ASP.NET Core 8 API + dashboard in `api/wwwroot`), `ml/` (Python forecast), `scripts/`
+(rollup/retrain), `connector_demo/` (mock external REST API), `database/parking_db.dump` (+restore),
+`docs/`, `powerbi/`, `README.md`.
 
-## Data (synthetic, calibrated to real references)
-- **2025** full year: ~8.1M vehicles, ~RM23.7M revenue, weekend peak occupancy ~94%, weekday ~61%.
-- **2026 Jan–May**: ~3.34M vehicles, ~RM9.9M revenue. Uses Malaysian plates (e.g. `SWJ2558`) + unique ticket IDs (e.g. `T5703E545`).
-- Transactions are a **2.5% sample** (~202k for 2025, ~84k for 2026); summary tables are **full-population**. (Don't mix the two on one visual.)
+## Architecture
+This platform is the **analytics layer**. It does **not** own the gate / barrier / ANPR camera —
+those belong to the operator's parking system. The platform **connects to that system's REST API**,
+pulls the session data in, rebuilds its summary tables, and runs analytics + ML forecasting on top.
+
+## Stack & how to run
+- **API + web:** ASP.NET Core (.NET 8) serving a vanilla-JS + Chart.js dashboard.
+- **Database:** PostgreSQL 16 (`parking_db`, user `postgres`, password `parking123`).
+- **ML:** Python 3.10+ (scikit-learn HistGradientBoosting).
+- **Run:** restore the dump (`database/restore_database.ps1`), then
+  `cd api && dotnet run --urls http://localhost:5000` → open http://localhost:5000.
+  Build gotcha: stop the running app first (`Get-Process ParkingApiPg | Stop-Process -Force`) — Windows locks the DLL **and** port 5000.
+- **API key** (dashboard ↔ API): `appsettings.json` → `ApiKey` (default `fyp-demo-key-2025`, header `X-Api-Key`).
+
+## Web dashboard — 9 pages
+Overview · Real-Time Status (5 s) · Occupancy (heatmap + entries-vs-exits by hour) · Vehicle Analysis ·
+Driver Behaviour (resident/worker/visitor heuristic) · Events Impact · Revenue · Predictive Analytics
+(7-day forecast + confidence + "Run forecast now") · Data Source (connector). Every analytics page has a
+date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM-DD`.
+
+## External-system connector (REST API)
+- `ConnectorController` (`/api/connector`) delegates to `Services/IngestionService.cs`:
+  `POST /test`, `POST /discover` (returns the API's JSON fields), `GET`/`POST /config`
+  (saved in `Data_Source_Config`, auth value masked on read), `POST /sync`, `GET /status`.
+- **Flow:** Test → Discover → Map JSON fields → Save → Sync. Sync pulls sessions, **bulk-loads via
+  binary COPY** into a temp table, then one set-based deduped insert into `Live_Parking`
+  (`Payment_Type='Imported'`, deduped on plate+entry-time) — scales to hundreds of thousands of rows.
+- **Auto-aggregation** (`Services/AggregationService.cs`): after each sync, rebuilds the date-grained
+  summary tables (`Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy`, `Event_Log_Table`,
+  `Transactions_Cleaned`) from `Live_Parking` with set-based SQL — surgical (only the imported dates).
+- **Auto-forecast** (`Services/ForecastService.cs`): after each sync it runs `ml/run_forecasts_v2.py`
+  in the background; also the **"Run forecast now"** button (`POST /api/forecast/run`, `GET /api/forecast/run-status`).
+- So: **connect → sync → aggregate → dashboards & forecast update automatically**, no manual Python step.
+- **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
+  (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
+
+## ML forecast (V2)
+- `ml/forecast_v2.py` (daily, day-type + lag features + supervisor baseline → `Forecast_Daily_V2`),
+  `ml/forecast_hourly_v2.py` (hourly, event-name aware → `Forecast_Hourly_V2`),
+  `ml/run_forecasts_v2.py` (runs both), `ml/backtest_v2.py` (walk-forward → `Model_Comparison_V2`).
+- Both loaders **exclude partial/live days** (<50% of median daily traffic) and forecast from **today**.
+- Backtest headline: ML beats the supervisor baseline on 9/10 daily segments (vehicles MAPE 5.3% vs 7.5%,
+  revenue 6.7% vs 11.9%, event days 7.3% vs 17.9%; baseline wins only on public-holiday revenue, N=3).
+- Web **confidence** is derived from the backtest MAPE per day type (Weekday≈96%, Event≈93%, PH≈90%).
 
 ## Database — PostgreSQL 16 (`parking_db`)
-- Settled on **PostgreSQL 16** after SQL Server failed (NVMe 4KB-sector install bug) and PostgreSQL 18 failed (broken bundled tools). Service: `postgresql-x64-16`, user `postgres`.
-- Tools: pgAdmin 4 (works) / DBeaver. (MySQL `fyp2_parking` from the original dashboard was abandoned.)
-- **Tables:**
-  - `Transactions_Cleaned` (26 cols incl `Ticket_ID`; 2025 + 2026; 2.5% sample)
-  - `Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy` (date-grained, 2025 + 2026 Jan–May)
-  - `Monthly_Summary`, `Level_Summary`, `Event_Summary` (all-time rollups, 2025 only)
-  - `Forecast_30Days` (ML predictions), `Event_Log_Table`, `Model_Comparison`
-  - `Live_Parking` (live simulator data; cols incl `Ticket_ID`, `Event_Status`, `Event_Name`)
+- `Transactions_Cleaned` (2.5% sample, 2025 + 2026), `Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy`,
+  `Monthly_Summary`, `Level_Summary`, `Event_Summary`, `Event_Log_Table`, `Event_Calendar`,
+  `Forecast_Daily_V2`, `Forecast_Hourly_V2`, `Model_Comparison_V2`, `Model_Comparison_Hourly_V2`,
+  `Live_Parking`, `Data_Source_Config`, `App_Settings`.
+- **Don't mix** the 2.5% `Transactions_Cleaned` sample with the full-population summary tables on one visual.
 
-## Power BI dashboard (DirectQuery on PostgreSQL — composite model)
-- **7 pages:** Overview, Real-Time Status (Live Monitor), Occupancy, Vehicle, Events, Revenue, Forecast.
-- **~23 measures** (Total Revenue, Total Vehicles, Occupancy Rate, Avg Fee, Car Dominant %, Cars In Now, etc.). % measures formatted `0.0%`, revenue formatted `"RM" #,##0`.
-- **Date table** (CALENDAR 2025–2026, marked as date table) with **6 relationships** to date-grained tables. `Date[Year]` slicer toggles 2025/2026 (synced across pages; Forecast page intentionally NOT synced).
-- Calculated columns: `Day_No`, `Day_Sorted`, `Duration_Band`, `Status`, `Zone Occupancy %`.
-- **Known:** `Monthly_Summary`/`Level_Summary`/`Event_Summary` are NOT date-connected, so visuals on them don't filter by year — some were repointed to date-connected tables (Daily_Summary, Event_Log_Table, Transactions_Cleaned).
+## Data
+- **2025** full year + **2026 Jan–May** synthetic, calibrated to real references; vehicle types are **Car + Motorcycle** only.
+- The committed `database/parking_db.dump` is the **seed dataset** so the system runs out of the box. In a
+  real deployment the data instead comes from the operator via the connector.
 
-## ML forecast model
-- `forecast_model.py` — Histogram Gradient Boosting. Hourly occupancy R²≈0.995, daily vehicles R²≈0.92, revenue R²≈0.82; beats a naive "last-week" baseline (proven in `Model_Comparison`).
-- `forecast_retrain.py` — reads PostgreSQL, retrains, writes `Forecast_30Days`. **NO LONGER SCHEDULED** (task repointed to V2) — `Forecast_30Days` is now stale; Forecast page should move to the V2 tables.
-- `FORECAST_METHODOLOGY.md` documents it.
+## Power BI (separate BI deliverable)
+- `powerbi/Parking_Dashboard.pbix` — DirectQuery on the same PostgreSQL. Outstanding (legacy track):
+  place the V2 forecast visuals + repoint the Forecast page off the stale `Forecast_30Days` onto
+  `Forecast_Daily_V2`, then save the pbix. (The **web** dashboard already uses the V2 tables.)
 
-## ML forecast V2 (prediction_v2, done 2026-06-13)
-- `C:\FYP\prediction_v2\` — `forecast_v2.py` (daily, day-type + lag features + supervisor baseline → `Forecast_Daily_V2`), `forecast_hourly_v2.py` (hourly + event-NAME-aware → `Forecast_Hourly_V2`, 720 rows/30 days), `backtest_v2.py` (60-day walk-forward → `Model_Comparison_V2`), `forecast_hourly_v2.py backtest` (→ `Model_Comparison_Hourly_V2`); results also saved as `backtest_daily_results.txt` / `backtest_hourly_results.txt` for the report.
-- Backtest headline: ML beats baseline on 9/10 daily segments (vehicles MAPE 5.3% vs 7.5%, revenue 6.7% vs 11.9%, event days 7.3% vs 17.9%). Baseline wins on public-holiday revenue (N=3) — say so honestly in the report.
-- Both loaders **auto-exclude partial/live days** (<50% of median daily traffic, e.g. live-rollup days still filling in) and forecast from TODAY even when the last complete day is older.
-- `Event_Calendar` holds future events; names must match `Event_Log_Table.Event_Category` (MegaSale/Expo/CareerFair/RoadShow/Concert) for name-aware prediction; unmatched names fall back to "avg of last event days" (stated in `Prediction_Basis`).
-- `run_forecasts_v2.py` runs both forecasts; scheduled as **"Parking Forecast V2 Daily"** (02:10, pythonw, StartWhenAvailable, run-when-logged-on).
-- Power BI model (open file "DASGBOARD_original（copy）") now has DirectQuery tables `Forecast_Daily_V2`, `Forecast_Hourly_V2`, `Model_Comparison_V2`, `Model_Comparison_Hourly_V2` + Tomorrow measures (`Tomorrow Predicted Vehicles/Revenue`, `Tomorrow Day Type`, `Tomorrow Prediction Basis`) on Forecast_Daily_V2. **Visuals (slicers + Tomorrow card) still to be placed manually; SAVE the pbix to persist.**
-
-## ASP.NET Core Web API (.NET 8) + web prototype
-- Project: `C:\FYP\ParkingApiPg_PostgreSQL\ParkingApiPg` (Npgsql/PostgreSQL). .NET 8 SDK 8.0.421.
-- **Endpoints:** POST `/api/parking/entry`, `/exit`; GET `/api/occupancy`, `/levels`, `/daily`, `/forecast`, `/data/{table}`. Header: `X-Api-Key: fyp-demo-key-2025`.
-- **Web prototype (REBUILT 2026-06-13):** 8-page dashboard "Confined Parking Analytics" at **http://localhost:5000** (MUST open via the URL, not the file): Overview, Real-Time (5s refresh), Occupancy (day×hour heatmap), Vehicle, Events, Revenue, Forecast, **Gate Monitor** (live audit log + simulate-a-plate-read demo buttons). Shared shell in `assets/app.js` + `assets/style.css` (dark BI theme, sidebar); Chart.js vendored locally (`assets/chart.umd.min.js`, works offline). Old/broken files archived in `wwwroot/_archive_20260613/`.
-- **Driver Behaviour page (done 2026-06-13):** new `behaviour.html` + nav "Driver Behaviour" classifies every parking session into **Resident / Worker / Visitor** from its stay pattern (no ML — explainable heuristic): Resident = stay ≥12h (overnight/all-day); Worker = weekday, arrival 5–11am, 5–12h stay (commuter); Visitor = the rest. Endpoints `/api/dash/driver-segments` + `driver-segments-hourly` (`DashboardController`, `Seg` CASE on `Transactions_Cleaned`, date-filtered). Charts: arrivals-by-hour stacked per segment, segment-share donut, avg stay & fee by segment, profiles table; 5 KPIs. Verified on 2026: Visitor 96.9% (avg 3.1h, ~2:30pm), Worker 2.9% (avg 6.9h, ~8:54am, morning peak), Resident 0.15% (avg 13.2h). This closes the last open objective (driver behaviour). Assets bumped to `?v=9`.
-- **User-requested revisions (same day):** every analytics page has a **date filter** (preset dropdown All/2025/2026/30d/90d + from/to date inputs, persisted; `/api/dash/*` rewritten to `?from&to`, monthly labels now "Mon YY" so cross-year ranges work). No "supervisor"/"Mid Valley" wording in the UI (virtual target only).
-- **Design system v2 + Predictive Analytics rebuild (same day):** `style.css` overhauled (refined tokens, layered shadows/inset highlights, hover-lift cards, gradient active nav, fadeUp entrance, tabular-nums, scrollbar styling). A11y pass (web-interface-guidelines): `color-scheme:dark` on html, semantic `<h1>` page title, `aria-hidden` nav icons + `aria-current`, labelled gate input, `theme-color` meta, expanded `prefers-reduced-motion`, `touch-action:manipulation`. Asset cache-buster now `?v=6`.
-- **Forecast page = "Predictive Analytics"**: method-chip row (day-type detection / time-type / pattern matching / event boost / confidence); 4 hero cards (tomorrow vehicles + **confidence bar**, predicted revenue, office-vs-after-hours split, event impact %); **7-day forecast strip** (one card/day: day-type badge, vehicles, revenue, confidence bar High/Med/Low); hourly forecast (next 7 days, office hours = darker bars); 7-day predicted revenue; 7-day detail table with confidence + "matched against" basis. **Confidence is derived from the walk-forward backtest MAPE per day type** (Model_Comparison_V2, ML rows) — Weekday≈96%, Event≈93%, Public Holiday≈90% — minus 8pts when an event has no same-name history. Backtest MAPE chart stays out of the web (Power BI/report only).
-- **2026-06-13 bug fix:** all `/api/dash/*` endpoints were returning 500 (the 2026-06-12 month-filter refactor passed an untyped `DBNull` parameter — Npgsql needs `NpgsqlDbType.Integer`). Fixed in `DashboardController.Query`. `/api/data` allowlist extended with the V2 forecast/comparison tables, `Event_Calendar`, `live_vehicle_mix`, and `gate_devices` (keys excluded).
-- `Live_Parking` table created manually (EnsureCreated skipped because DB already had tables).
-
-## Barrier-gate integration (done 2026-06-13, supervisor request)
-- **Endpoints:** POST `/api/gate/entry` & `/exit` → `{action: open/deny, ticketId, reason}`; POST `/api/gate/pay` (autopay), GET `/api/gate/status/{plate}`, GET `/api/gate/log` (audit). `GateController.cs` + `Models/Gate.cs` + `Models/Tariff.cs`.
-- **Per-device API keys:** `Gate_Devices` table, gates send `X-Device-Key` (seeded: ENTRY-CAM-01/`gate-entry-01-key-7f3a`, EXIT-CAM-01/`gate-exit-01-key-9b2c`); master `X-Api-Key` still works. Tables `Gate_Devices`/`Gate_Log`/`Gate_Payments` auto-created + seeded on API startup (raw SQL, since EnsureCreated skips existing DBs).
-- **Edge cases:** duplicate entry deny, misread/low-confidence (<0.40) deny, unpaid exit deny with RM due, pay → 15-min grace, no-ticket exit deny. Real tariff in `Tariff.cs` (free 15 min; weekday 2/3h +1 +2.50/h; Fri/weekend flat RM2; PH simplified to day-of-week). Entries auto-stamped with today's `Event_Calendar` event (verified: Event Day/MegaSale).
-- **Plate reader demo:** `C:\FYP\gate_demo\plate_reader.py` — webcam (SPACE to read) / image / `--plate` manual mode (no OCR deps); EasyOCR optional (needs torch; if pip fails on Py3.14 use a 3.12 venv). `README_GATE.md` documents everything.
-- **Tests:** `ParkingApiPg/test_gate_api.py` — 18 end-to-end checks, all passing (auth, entry, duplicate, misread, free exit, unpaid→pay→exit, log; self-cleaning).
-- Scope kept single-carpark; multi-tenant = future work.
-
-## Data-source connector (done 2026-06-13) — connect to an EXTERNAL parking system
-- **Architecture clarified by user:** this platform is the **analytics layer**; the gate/barrier/ANPR camera + their database belong to a third-party parking system. The platform connects to that DB, discovers its schema, maps fields, and pulls data in for analysis (it does NOT own the hardware).
-- `ConnectorController` (`/api/connector`): `POST /test`, `POST /discover` (information_schema), `GET`/`POST /config` (saved in `Data_Source_Config` table, password masked on read), `POST /sync` (reads mapped cols → inserts into `Live_Parking` as `Payment_Type='Imported'`, deduped on plate+entry-time), `GET /status`. PostgreSQL implemented; `engine` field lets MySQL/SQL Server be added via their ADO.NET provider. Identifiers validated against `^[A-Za-z_][A-Za-z0-9_]*$` (anti-injection).
-- **Web page** `connect.html` ("Data Source" in nav): connection form → Test → Discover (auto-guesses mapping from column names) → Save → Sync; KPIs + imported-sessions preview.
-- **Demo:** `C:\FYP\connector_demo\mock_parking_system.py` creates a separate DB `ext_parking_demo` with vendor-shaped table `anpr_sessions` (lpr_plate/gate_in_at/gate_out_at/paid_amount/deck_code/vehicle_class) + 120 sessions. Verified end-to-end: test→discover→auto-map→sync (120 imported)→re-sync dedup 0→Real-Time & /api/occupancy reflect it. `_cleanup_imported.py` removes imported rows. See `connector_demo\README_CONNECTOR.md`.
-- **Note:** the earlier in-app gate API (GateController) is still valid as the *reference/simulated* gate for when no external system is connected; the connector is the path for integrating a real third-party system.
-- **API-based integration + multi-engine DB (done 2026-06-13, per supervisor "usually communicate via API"):** the connector now supports TWO source types:
-  - **REST API source** (the supervisor's recommended path): pull sessions from the parking system's HTTP endpoint — config = URL, method, optional auth header+value, records path (dotted, for nested JSON like `data`); discover returns the JSON keys; mapping maps JSON fields → canonical. Uses `IHttpClientFactory`. **Verified end-to-end** against `C:\FYP\connector_demo\mock_parking_api.py` (serves `GET /api/sessions`, header `X-Api-Key: parking-vendor-key`, body `{status,data:[...]}`): test→110 records, discover→keys, sync→imported 110 via API + aggregated. Also note: the *reverse* direction already works — their system can POST to our `/api/parking/entry` & `/api/gate/entry`.
-  - **Multi-engine DB**: PostgreSQL + **MySQL** (`MySqlConnector`) + **SQL Server** (`Microsoft.Data.SqlClient`) — engine-specific connection/quoting/discovery in `Services/ConnectorDb.cs`; sync uses `System.Data.Common.DbConnection` so the flow is shared. Verified: postgres discover works; MySQL driver reached a live server (got auth-denied = functional); SQL Server failed gracefully (none installed). Couldn't fully live-test MySQL/SQL Server end-to-end (no seeded server), but the providers are wired and connect.
-  - Refactor: `IngestionService` now has `FetchDbRows`/`FetchApiRows`/`IngestRows` (shared ingest+aggregate); `Test`/`Discover` moved into it and branch on source type; `ConnectorController` is a thin delegator. `Models/ConnectorModels.cs` gained `ApiSource` + `SourceType` + `SessionRow`. Data Source page has a **Source type** selector (REST API / Database) toggling field groups; assets `?v=10`.
-  - **MySQL proven end-to-end 2026-06-14:** `connector_demo/mock_parking_mysql.py` seeds MySQL DB `ext_parking_mysql.car_movements` (root/parking123, port 3306); connector synced 100 sessions via mysql + aggregated 5 days, re-sync deduped to 0. So PostgreSQL + MySQL + REST API are all demonstrated; **SQL Server remains code-only (no server installed to test).**
-- **Historical entries-vs-exits chart (2026-06-14):** new `/api/dash/entries-exits-hourly` (entries by Entry_Hour vs exits by Exit_Time hour, date-filtered) + "Entries vs Exits by Hour" card on the Occupancy page — closes the historical-exits gap (shows the daily rhythm: arrivals AM, departures PM).
-- **"Configure the integration" (user picked this scope 2026-06-13, NOT writing into their system):**
-  - **Scheduled sync** — sync logic extracted to `Services/IngestionService.cs`; `Services/SyncBackgroundService.cs` (hosted) runs it on the configured interval (checks every 15s). Verified: with interval=1 the log shows repeated "Scheduled sync: Imported N…" and `Last_Sync` updates.
-  - **Platform settings** — `App_Settings` (key/value) + `Services/SettingsService.cs` (singleton, cached) + `/api/settings` GET/POST. Configurable **capacity** (flows into `/api/occupancy` live — verified 11000→8000 changed occupancy 29%→40%) and **tariff** (free mins, weekday base, hr3-4 add, after-4 rate, weekend flat) which `SettingsService` pushes into the now-mutable `Tariff` static used by the gate. `sync_interval_seconds` drives the scheduler.
-  - **UI:** Data Source page card "3 · Integration settings" (auto-sync dropdown Manual/1m/5m/15m/hourly, capacity, tariff fields) — load/save verified end-to-end, persists. Connector models moved to `Models/ConnectorModels.cs`; `ConnectorController` slimmed to delegate to `IngestionService`. Assets `?v=8`.
-- **Generalized aggregation — closes the connect→analyse loop (2026-06-13):** `Services/AggregationService.cs` rebuilds the date-grained summary tables (`Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy`, `Event_Log_Table`, `Transactions_Cleaned`) from `Live_Parking` with self-contained set-based SQL (temp tables `_sess`/`_conc`; real per-hour concurrency for occupancy). **Surgical**: only rebuilds dates present in `Live_Parking`, so curated history on other dates is untouched (does NOT touch the all-time `Level_Summary`/`Monthly_Summary` rollups). Uses the configurable capacity. **`IngestionService.Sync` calls it automatically after every sync** (manual button or scheduled), so a freshly-connected database flows end-to-end with no Python/Task Scheduler: connect → sync → aggregate → dashboards. Verified: sync reported "aggregated 4 day(s)"; `/api/dash/kpis` + `daily` + `vehicle-mix` for today now reflect the imported sessions (122 vehicles, 29.2% occ, their car/motorcycle/van/lorry classes). The ML forecast (Python, nightly) then picks up the rebuilt summaries automatically. **Sync is a FULL table read (no date filter), so it imports the operator's entire history**, aggregation builds summaries for every imported date, and the forecast trains on that full history from the first sync — it works immediately when the connected DB has history (the V2 forecast already trains on 17 months, which is the same pipeline). The "needs a few weeks" case applies ONLY to a true greenfield install with zero prior data (falls back gracefully). This C# aggregation supersedes `rollup_live.py` for the connector path (rollup remains for the simulator demo). Scale refinements (not yet done): incremental sync via an entry-time high-water mark; indexed/windowed rewrite of the occupancy-concurrency aggregation for very large histories.
-
-## Real-time pipeline
-- `event_simulator.py` — posts entries/exits with plates + ticket IDs + **event bursts** (occasional event-days with heavier traffic). Run: `python event_simulator.py`.
-- `rollup_live.py` — aggregates `Live_Parking` into the summary tables as **today/June rows** so the analytical pages show live data when filtered to June. **Scheduled every 1 minute** (Task Scheduler). Only touches June-onward; history untouched.
-- **Demo routine:** start API (`dotnet run`) → start simulator → (rollup + forecast retrain run automatically) → Power BI on June + auto page refresh shows live; Live Monitor page + web app are live.
-
-## Windows Task Scheduler
-- **Parking Forecast Retrain** — daily 02:00, now runs `prediction_v2\forecast_v2.py` (user repointed it; still python.exe — couldn't change to pythonw, task is permission-locked from non-elevated shells).
-- **Parking Forecast V2 Daily** — daily 02:10, `prediction_v2\run_forecasts_v2.py` (both V2 forecasts), pythonw, StartWhenAvailable.
-- **Parking Live Rollup** — repeat every 1 min.
-- Both: use `pythonw.exe` (no popup window), **"Run only when user is logged on"** (avoids the Windows-password prompt — user forgot the password, doesn't need it).
-- Python path: `C:\Users\End User\AppData\Local\Programs\Python\Python314\pythonw.exe`. Scripts in `C:\FYP\`.
-
-## Environment specifics
-- Laptop: ASUS TUF Gaming, Windows 11. Python 3.14. PostgreSQL 16. .NET 8.
-- All working files in `C:\FYP\`.
-
-## Key gotchas learned
-- Don't open CSVs in Excel before importing (mangles timestamps → "invalid timestamp" errors).
-- pgAdmin caches schema — disconnect/reconnect the SERVER to pick up new columns.
-- `%` in PostgreSQL column names (e.g. `Occupancy_Rate_%`) must be escaped as `%%` in psycopg2 parameterized INSERTs.
-- Paths with spaces ("End User") need quotes in Task Scheduler.
-- Open the web app at `http://localhost:5000`, never as a `file://`.
+## Removed (history)
+The following were built earlier and then **removed** to keep the system a focused analytics layer:
+the **barrier-gate** feature (gate API/controller, tariff, Gate Monitor page, plate-reader demo),
+the **multi-engine DB connector** (PostgreSQL/MySQL/SQL Server direct-DB source — replaced by REST-API-only),
+and the topbar **admin sign-in** block.
 
 ## Outstanding / next
-- **Power BI visuals for V2** (manual): Forecast page — Tomorrow card (drag the 4 Tomorrow measures), Forecast_Daily_V2 line/column by Day_Type, Prediction_Basis table; Forecast_Hourly_V2 slicers Day_Name/Hour/Time_Band/Event_Name. Then SAVE the pbix.
-- **Repoint Forecast page off stale `Forecast_30Days`** onto `Forecast_Daily_V2`.
-- ~~Barrier-gate integration~~ DONE 2026-06-13 (see section above). Optional polish: a `gate.html` live-monitor page on `/api/gate/log`; install easyocr for the webcam demo.
-- ~~Web prototype redo~~ DONE 2026-06-13 — full rebuild, see API section above.
-- Optional: extend forecast horizon to 90 days; run perf/postgres optimization reviews; report writing (methodology/system-design/results sections — material exists in FORECAST_METHODOLOGY.md, System_Architecture.svg, BUILD_GUIDE.md).
+- **Push to GitHub** (user does this): create empty repo → `git remote add origin <url>` → `git push -u origin main`.
+- **Written FYP report** — separate from the software.
+- Power BI V2 visuals (above). Optional: extend forecast horizon to 90 days; perf review for very large histories.
+
+## Dev-only helpers (kept locally, gitignored — not in the upload)
+- `connector_demo/mock_parking_api.py` IS committed (the connector test harness).
+- `scripts/reset_demo.ps1` (baseline/empty demo reset) and `DEMO_GUIDE.md` are kept local only.
+- After demo syncs, `connector_demo/_cleanup_imported.py` removes `Payment_Type='Imported'` rows; a full
+  reset is `database/restore_database.ps1` (or `scripts/reset_demo.ps1 -Mode baseline`).

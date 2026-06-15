@@ -15,12 +15,21 @@ env/
 *.log
 out.log
 err.log
+_api.out
+_api.err
+_mock.out
+_mock.err
 
 # ---- OS / IDE ----
 Thumbs.db
 .DS_Store
 .idea/
 .vscode/
+
+# ---- demo / rehearsal helpers (kept locally, not part of the upload) ----
+# connector_demo/mock_parking_api.py IS committed (the test harness for the connector).
+scripts/reset_demo.ps1
+DEMO_GUIDE.md
 
 # NOTE: database/parking_db.dump IS committed on purpose (the data the app needs).
 # NOTE: api/wwwroot/assets/chart.umd.min.js IS committed (vendored so the UI works offline).

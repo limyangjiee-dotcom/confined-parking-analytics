@@ -6,11 +6,10 @@ namespace ParkingApiPg.Controllers;
 
 // ============================================================
 //  External parking-system connector (INBOUND / read-only).
-//  Connects to a third-party parking system — either its DATABASE
-//  (PostgreSQL / MySQL / SQL Server) or its REST API — discovers the
-//  schema, maps fields to our analytics model, and pulls data in.
-//  All the source logic lives in IngestionService (shared with the
-//  scheduled background sync).
+//  Connects to a third-party parking system via its REST API,
+//  discovers the response fields, maps them to our analytics model,
+//  and pulls data in. All the source logic lives in IngestionService
+//  (shared with the scheduled background sync).
 // ============================================================
 [ApiController]
 [Route("api/connector")]
@@ -40,12 +39,10 @@ public class ConnectorController : ControllerBase
     {
         var (cfg, lastSync, lastStatus) = await _ingestion.ReadConfig();
         if (cfg == null)
-            return Ok(new { configured = false, config = new DsConfig(new SourceConn(), new Mapping(), "database", new ApiSource()), lastSync, lastStatus });
-        var conn = cfg.Connection ?? new SourceConn();
+            return Ok(new { configured = false, config = new DsConfig(new Mapping(), new ApiSource()), lastSync, lastStatus });
         var api = cfg.Api ?? new ApiSource();
         var masked = cfg with
         {
-            Connection = conn with { Password = string.IsNullOrEmpty(conn.Password) ? "" : "********" },
             Api = api with { AuthValue = string.IsNullOrEmpty(api.AuthValue) ? "" : "********" }
         };
         return Ok(new { configured = true, config = masked, lastSync, lastStatus });
@@ -83,6 +80,6 @@ public class ConnectorController : ControllerBase
                     ticket = rd.GetString(0), plate = rd.GetString(1),
                     entry = rd.GetValue(2), exit = await rd.IsDBNullAsync(3) ? null : rd.GetValue(3),
                     fee = rd.GetValue(4), level = rd.GetValue(5), vehicleType = rd.GetValue(6) });
-        return Ok(new { configured = cfg != null, sourceType = cfg?.SourceType ?? "database", lastSync, lastStatus, importedTotal = imported, preview });
+        return Ok(new { configured = cfg != null, lastSync, lastStatus, importedTotal = imported, preview });
     }
 }

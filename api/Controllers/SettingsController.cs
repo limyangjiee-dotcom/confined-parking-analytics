@@ -3,7 +3,7 @@ using ParkingApiPg.Services;
 namespace ParkingApiPg.Controllers;
 
 // Platform-side configuration (no writes to the external parking system):
-// analytics capacity, gate tariff, and connector auto-sync interval.
+// analytics capacity and connector auto-sync interval.
 [ApiController]
 [Route("api/settings")]
 public class SettingsController : ControllerBase

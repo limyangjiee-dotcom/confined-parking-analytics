@@ -1,13 +1,13 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f2f4f7">
 <title>Real-Time · Confined Parking Analytics</title>
-<link rel="stylesheet" href="assets/style.css?v=11">
+<link rel="stylesheet" href="assets/style.css?v=13">
 <script src="assets/chart.umd.min.js"></script>
-<script src="assets/app.js?v=11"></script>
+<script src="assets/app.js?v=13"></script>
 </head>
 <body data-page="realtime" data-year="0"
       data-title="Real-Time Status"
@@ -42,15 +42,9 @@
     </div>
   </div>
 
-  <div class="grid grid-2">
-    <div class="card">
-      <div class="card-head"><div class="card-title">Recent Activity</div><div class="card-note">last 15 movements</div></div>
-      <div class="tbl-wrap" id="tblRecent"></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><div class="card-title">Barrier-Gate Decisions</div><div class="card-note">latest reads · <a href="gate.html" style="color:var(--accent)">gate monitor</a></div></div>
-      <div class="tbl-wrap" id="tblGate"></div>
-    </div>
+  <div class="card">
+    <div class="card-head"><div class="card-title">Recent Activity</div><div class="card-note">last 15 movements</div></div>
+    <div class="tbl-wrap" id="tblRecent"></div>
   </div>
 
 </main>
@@ -60,14 +54,13 @@ buildShell(); chartDefaults();
 
 async function refresh() {
   try {
-    const [stats, occ, timeline, levels, mix, recent, gateLog] = await Promise.all([
+    const [stats, occ, timeline, levels, mix, recent] = await Promise.all([
       api("/api/dash/live-stats"),
       api("/api/occupancy"),
       api("/api/dash/live-timeline"),
       api("/api/levels"),
       api("/api/data/live_vehicle_mix"),
-      api("/api/dash/live-recent?limit=15"),
-      api("/api/gate/log?limit=10")
+      api("/api/dash/live-recent?limit=15")
     ]);
 
     // KPIs
@@ -138,15 +131,6 @@ async function refresh() {
       { h: "Out", c: r => r.exit_time ? fmtTime(r.exit_time) : badge("inside", "green") },
       { h: "Fee", c: r => r.exit_time ? fmtRM2(r.fee) : "–", num: true }
     ], recent, "No live traffic yet — start the simulator");
-
-    // gate decisions
-    buildTable("tblGate", [
-      { h: "Time", c: r => fmtTime(r.log_Time) },
-      { h: "Device", c: r => `<code>${r.device_ID}</code>` },
-      { h: "Plate", c: r => r.plate || "–" },
-      { h: "Action", c: r => badge(r.action.toUpperCase(), r.action === "open" ? "green" : "rose") },
-      { h: "Reason", c: r => `<span style="white-space:normal">${r.reason}</span>` }
-    ], gateLog, "No gate reads yet — try the Gate Monitor demo");
   } catch (e) { showError(e); }
 }
 

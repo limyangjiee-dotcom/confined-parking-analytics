@@ -1,37 +1,26 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f2f4f7">
 <title>Data Source · Confined Parking Analytics</title>
-<link rel="stylesheet" href="assets/style.css?v=11">
+<link rel="stylesheet" href="assets/style.css?v=13">
 <script src="assets/chart.umd.min.js"></script>
-<script src="assets/app.js?v=11"></script>
+<script src="assets/app.js?v=13"></script>
 </head>
 <body data-page="connect" data-year="0"
       data-title="Data Source Connector"
-      data-sub="Connect to an external parking system — its REST API or its database — map the fields, and pull the data in">
+      data-sub="Connect to an external parking system's REST API, map the fields, and pull the data in">
 <main class="main">
-
-  <div class="banner">
-    This platform is an <b>analytics layer</b> — the gate, barrier and ANPR camera belong to the parking system.
-    Connect to it the standard way (<b>its REST API</b>) or directly to <b>its database</b>; it discovers the fields,
-    you map them, and it pulls the data in for analysis. <span style="opacity:.8">Their system can also push events to our
-    <code>/api/parking/entry</code> &amp; <code>/api/gate/entry</code> endpoints.</span>
-  </div>
 
   <div class="grid grid-2">
     <!-- step 1: connection -->
     <div class="card">
-      <div class="card-head"><div class="card-title">1 · Connect to the parking system</div>
-        <select class="month-select" id="sourceType" aria-label="Source type">
-          <option value="api">REST API</option>
-          <option value="database">Database</option>
-        </select>
+      <div class="card-head"><div class="card-title">1 · Connect to the parking system's API</div>
+        <div class="card-note">REST endpoint returning JSON sessions</div>
       </div>
 
-      <!-- API fields -->
       <div id="apiFields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <label style="grid-column:1/3">Endpoint URL<input class="input" id="aUrl" placeholder="http://host/api/sessions" style="width:100%;margin-top:4px" autocomplete="off"></label>
         <label>Method
@@ -39,22 +28,6 @@
         <label>Records path <span style="color:var(--text-faint)">(optional)</span><input class="input" id="aPath" placeholder="data" style="width:100%;margin-top:4px" autocomplete="off"></label>
         <label>Auth header <span style="color:var(--text-faint)">(optional)</span><input class="input" id="aHeader" placeholder="X-Api-Key" style="width:100%;margin-top:4px" autocomplete="off"></label>
         <label>Auth value<input class="input" id="aValue" type="password" placeholder="token / key" style="width:100%;margin-top:4px" autocomplete="off"></label>
-      </div>
-
-      <!-- DB fields -->
-      <div id="dbFields" style="display:none;grid-template-columns:1fr 1fr;gap:10px">
-        <label style="grid-column:1/3">Engine
-          <select class="input" id="engine" style="width:100%;margin-top:4px">
-            <option value="postgresql">PostgreSQL</option>
-            <option value="mysql">MySQL</option>
-            <option value="sqlserver">SQL Server</option>
-          </select>
-        </label>
-        <label>Host<input class="input" id="host" value="localhost" style="width:100%;margin-top:4px" autocomplete="off"></label>
-        <label>Port<input class="input" id="port" value="5432" inputmode="numeric" style="width:100%;margin-top:4px" autocomplete="off"></label>
-        <label style="grid-column:1/3">Database<input class="input" id="database" placeholder="ext_parking_demo" style="width:100%;margin-top:4px" autocomplete="off"></label>
-        <label>Username<input class="input" id="username" value="postgres" style="width:100%;margin-top:4px" autocomplete="off"></label>
-        <label>Password<input class="input" id="password" type="password" placeholder="••••••" style="width:100%;margin-top:4px" autocomplete="off"></label>
       </div>
 
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
@@ -66,11 +39,8 @@
 
     <!-- step 2: mapping -->
     <div class="card">
-      <div class="card-head"><div class="card-title">2 · Map their fields to our model</div><div class="card-note">column or JSON field · discover first</div></div>
+      <div class="card-head"><div class="card-title">2 · Map their fields to our model</div><div class="card-note">JSON field · discover first</div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label style="grid-column:1/3" id="srcTableRow">Source table
-          <select class="input" id="mSourceTable" style="width:100%;margin-top:4px"><option value="">— discover first —</option></select>
-        </label>
         <label>Plate / Vehicle ID <span style="color:var(--rose)">*</span>
           <select class="input map" id="mPlate" style="width:100%;margin-top:4px"></select></label>
         <label>Entry time <span style="color:var(--rose)">*</span>
@@ -105,11 +75,6 @@
           <option value="3600">Every hour</option>
         </select></label>
       <label>Capacity (bays)<input class="input" id="sCapacity" inputmode="numeric" style="width:100%;margin-top:4px"></label>
-      <label>Free minutes<input class="input" id="sFree" inputmode="numeric" style="width:100%;margin-top:4px"></label>
-      <label>Weekday base RM (≤3h)<input class="input" id="sBase" inputmode="decimal" style="width:100%;margin-top:4px"></label>
-      <label>Hour 3–4 add RM<input class="input" id="sHour4" inputmode="decimal" style="width:100%;margin-top:4px"></label>
-      <label>After 4h, RM/hr<input class="input" id="sAfter" inputmode="decimal" style="width:100%;margin-top:4px"></label>
-      <label>Weekend flat RM<input class="input" id="sWeekend" inputmode="decimal" style="width:100%;margin-top:4px"></label>
     </div>
     <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><button class="btn" id="btnSaveSettings">Save settings</button></div>
     <div class="gate-result" id="settingsResult"></div>
@@ -127,32 +92,19 @@
 <script>
 buildShell(); chartDefaults();
 const $ = id => document.getElementById(id);
-let discovered = {};
-
-function srcType() { return $("sourceType").value; }
-function toggleSource() {
-  const api = srcType() === "api";
-  $("apiFields").style.display = api ? "grid" : "none";
-  $("dbFields").style.display = api ? "none" : "grid";
-  $("srcTableRow").style.display = api ? "none" : "block";
-}
+let discovered = [];   // columns from the API response
 
 function configBody() {
   return {
-    sourceType: srcType(),
-    connection: {
-      engine: $("engine").value, host: $("host").value.trim(),
-      port: Number($("port").value) || 5432, database: $("database").value.trim(),
-      username: $("username").value.trim(), password: $("password").value
-    },
     api: {
       url: $("aUrl").value.trim(), method: $("aMethod").value,
       authHeader: $("aHeader").value.trim(), authValue: $("aValue").value,
       recordsPath: $("aPath").value.trim()
     },
     mapping: {
-      sourceTable: $("mSourceTable").value, plate: $("mPlate").value, entryTime: $("mEntryTime").value,
-      exitTime: $("mExitTime").value, fee: $("mFee").value, level: $("mLevel").value, vehicleType: $("mVehicleType").value
+      plate: $("mPlate").value, entryTime: $("mEntryTime").value,
+      exitTime: $("mExitTime").value, fee: $("mFee").value,
+      level: $("mLevel").value, vehicleType: $("mVehicleType").value
     }
   };
 }
@@ -161,15 +113,6 @@ function result(el, ok, msg) { el.className = "gate-result " + (ok ? "open" : "d
 async function loadConfig() {
   const s = await api("/api/connector/config");
   const c = s.config;
-  $("sourceType").value = c.sourceType || "api";
-  // db
-  $("engine").value = c.connection.engine || "postgresql";
-  $("host").value = c.connection.host || "localhost";
-  $("port").value = c.connection.port || 5432;
-  $("database").value = c.connection.database || "";
-  $("username").value = c.connection.username || "postgres";
-  if (c.connection.password === "********") $("password").placeholder = "•••••• (saved)";
-  // api
   if (c.api) {
     $("aUrl").value = c.api.url || "";
     $("aMethod").value = c.api.method || "GET";
@@ -178,7 +121,6 @@ async function loadConfig() {
     if (c.api.authValue === "********") $("aValue").placeholder = "•••••• (saved)";
   }
   window.__map = c.mapping || {};
-  toggleSource();
   await loadSettings();
   await refreshStatus();
 }
@@ -187,17 +129,12 @@ async function loadSettings() {
   const s = (await api("/api/settings")).settings;
   $("sSync").value = s.sync_interval_seconds || "0";
   $("sCapacity").value = s.capacity;
-  $("sFree").value = s.tariff_free_minutes;
-  $("sBase").value = s.tariff_weekday_base;
-  $("sHour4").value = s.tariff_hour4_add;
-  $("sAfter").value = s.tariff_after_hour_rate;
-  $("sWeekend").value = s.tariff_weekend_flat;
 }
 
 async function refreshStatus() {
   const s = await api("/api/connector/status");
   const box = $("kpis"); box.innerHTML = "";
-  kpi(box, { label: "Connection", value: s.configured ? "Configured" : "Not set", sub: s.configured ? `${s.sourceType} source` : "enter details above", color: s.configured ? PALETTE.green : PALETTE.amber });
+  kpi(box, { label: "Connection", value: s.configured ? "Configured" : "Not set", sub: s.configured ? "REST API source" : "enter details above", color: s.configured ? PALETTE.green : PALETTE.amber });
   kpi(box, { label: "Imported Sessions", value: fmtNum(s.importedTotal), sub: "pulled from external system", color: PALETTE.accent });
   kpi(box, { label: "Last Sync", value: s.lastSync ? fmtTime(s.lastSync) : "never", sub: s.lastSync ? fmtDateFull(s.lastSync) : "run a sync", color: PALETTE.violet });
   kpi(box, { label: "Last Status", value: (s.lastStatus || "").startsWith("OK") ? "OK" : (s.lastStatus || "").startsWith("ERROR") ? "Error" : "—", sub: s.lastStatus || "", color: (s.lastStatus || "").startsWith("OK") ? PALETTE.green : PALETTE.rose });
@@ -213,8 +150,7 @@ async function refreshStatus() {
   ], s.preview, "Nothing imported yet — connect, map and sync above");
 }
 
-function fillMaps(table) {
-  const cols = discovered[table] || [];
+function fillMaps(cols) {
   const opts = optional => `${optional ? '<option value="">— none —</option>' : ""}` +
     cols.map(c => `<option value="${c.name}">${c.name} (${c.type})</option>`).join("");
   $("mPlate").innerHTML = opts(false);
@@ -232,34 +168,25 @@ function fillMaps(table) {
   guess("mVehicleType", ["class", "klass", "type", "category"]);
 }
 
-$("sourceType").onchange = toggleSource;
-$("engine").onchange = () => { const p = { postgresql: 5432, mysql: 3306, sqlserver: 1433 }[$("engine").value]; if (p) $("port").value = p; };
-
 $("btnTest").onclick = async () => {
   result($("connResult"), false, "Testing…");
   const r = await apiPost("/api/connector/test", configBody());
-  result($("connResult"), r.ok, r.ok ? `<b>Connected.</b> ${r.extra?.server || (r.extra?.sampleKeys ? "fields: " + r.extra.sampleKeys.join(", ") : r.message)}` : `<b>Failed.</b> ${r.message}`);
+  result($("connResult"), r.ok, r.ok ? `<b>Connected.</b> ${r.extra?.sampleKeys ? "fields: " + r.extra.sampleKeys.join(", ") : r.message}` : `<b>Failed.</b> ${r.message}`);
 };
 
 $("btnDiscover").onclick = async () => {
   result($("connResult"), false, "Discovering fields…");
   const r = await apiPost("/api/connector/discover", configBody());
   if (!r.ok) { result($("connResult"), false, `<b>Failed.</b> ${r.message}`); return; }
-  discovered = {};
-  r.tables.forEach(t => discovered[t.table] = t.columns);
-  const names = Object.keys(discovered);
-  $("mSourceTable").innerHTML = names.map(n => `<option value="${n}">${n} (${discovered[n].length} fields)</option>`).join("");
-  const pref = names.find(n => /anpr|session|transaction|parking|ticket|event|response/i.test(n)) || names[0];
-  $("mSourceTable").value = pref; fillMaps(pref);
+  discovered = (r.tables[0] && r.tables[0].columns) || [];
+  fillMaps(discovered);
   const m = window.__map || {};
-  if (m.plate && discovered[pref]?.some(c => c.name === m.plate)) {
+  if (m.plate && discovered.some(c => c.name === m.plate)) {
     [["mPlate", m.plate], ["mEntryTime", m.entryTime], ["mExitTime", m.exitTime], ["mFee", m.fee], ["mLevel", m.level], ["mVehicleType", m.vehicleType]]
       .forEach(([id, v]) => { if (v) $(id).value = v; });
   }
-  result($("connResult"), true, `<b>Found ${names.length === 1 ? names[0] : names.length + " tables"}.</b> Map the fields →`);
+  result($("connResult"), true, `<b>Found ${discovered.length} field(s).</b> Map them →`);
 };
-
-$("mSourceTable").onchange = () => fillMaps($("mSourceTable").value);
 
 $("btnSave").onclick = async () => {
   const r = await apiPost("/api/connector/config", configBody());
@@ -279,10 +206,7 @@ $("btnSync").onclick = async () => {
 
 $("btnSaveSettings").onclick = async () => {
   const body = {
-    sync_interval_seconds: $("sSync").value, capacity: $("sCapacity").value,
-    tariff_free_minutes: $("sFree").value, tariff_weekday_base: $("sBase").value,
-    tariff_hour4_add: $("sHour4").value, tariff_after_hour_rate: $("sAfter").value,
-    tariff_weekend_flat: $("sWeekend").value
+    sync_interval_seconds: $("sSync").value, capacity: $("sCapacity").value
   };
   const r = await apiPost("/api/settings", body);
   const auto = $("sSync").value === "0" ? "manual sync only" : `auto-sync ${$("sSync").selectedOptions[0].text.toLowerCase()}`;

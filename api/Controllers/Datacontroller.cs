@@ -23,9 +23,7 @@ public class DataController : ControllerBase
         ["payment_mix"]    = "SELECT \"Payment_Type\" AS label, COUNT(*) AS value FROM \"Transactions_Cleaned\" GROUP BY \"Payment_Type\" ORDER BY value DESC",
         ["duration_by_type"]= "SELECT \"Vehicle_Type\" AS label, ROUND(AVG(\"Parking_Duration_Hours\")::numeric,2) AS value FROM \"Transactions_Cleaned\" GROUP BY \"Vehicle_Type\"",
         // live vehicle mix of cars currently inside (Live_Parking, not the 2.5% sample)
-        ["live_vehicle_mix"] = "SELECT \"Vehicle_Type\" AS label, COUNT(*) AS value FROM \"Live_Parking\" WHERE \"Exit_Time\" IS NULL GROUP BY 1 ORDER BY 2 DESC",
-        // gate devices WITHOUT their api keys
-        ["gate_devices"]   = "SELECT \"Device_ID\" AS device, \"Gate_Type\" AS gate_type, \"Location\" AS location, \"Is_Active\" AS active FROM \"Gate_Devices\" ORDER BY 1"
+        ["live_vehicle_mix"] = "SELECT \"Vehicle_Type\" AS label, COUNT(*) AS value FROM \"Live_Parking\" WHERE \"Exit_Time\" IS NULL GROUP BY 1 ORDER BY 2 DESC"
     };
 
     [HttpGet("{name}")]

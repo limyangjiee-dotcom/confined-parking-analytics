@@ -46,7 +46,6 @@ const NAV = [
   { href: "events.html",    key: "events",    label: "Events Impact",    icon: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>' },
   { href: "revenue.html",   key: "revenue",   label: "Revenue",          icon: '<circle cx="12" cy="12" r="9"/><path d="M9.5 8.5h5M9.5 11.5h5M12 8.5v8"/>' },
   { href: "forecast.html",  key: "forecast",  label: "Forecast (ML)",    icon: '<path d="M3 17l5-6 4 3 6-8"/><path d="M18 6h3v3"/><path d="M3 21h18"/>' },
-  { href: "gate.html",      key: "gate",      label: "Gate Monitor",     icon: '<path d="M4 21V5a2 2 0 0 1 2-2h2v18"/><path d="M8 8h13l-2.5 4H8"/><path d="M4 21h6"/>' },
   { href: "connect.html",   key: "connect",   label: "Data Source",      icon: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>' }
 ];
 
@@ -95,10 +94,6 @@ function buildShell() {
           <input type="date" class="month-select date-input" id="dateTo" aria-label="To date">
         </div>` : ""}
         <button class="btn ghost" id="btnRefresh">Refresh</button>
-        <div class="profile">
-          <div class="avatar" aria-hidden="true">A</div>
-          <div><div class="pf-name">Admin</div><div class="pf-role">Sign in</div></div>
-        </div>
       </div>
     </div>`);
 
