@@ -29,6 +29,7 @@ Thumbs.db
 # ---- demo / rehearsal helpers (kept locally, not part of the upload) ----
 # connector_demo/mock_parking_api.py IS committed (the test harness for the connector).
 scripts/reset_demo.ps1
+scripts/_*.sql
 DEMO_GUIDE.md
 
 # NOTE: database/parking_db.dump IS committed on purpose (the data the app needs).
