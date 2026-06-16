@@ -119,7 +119,16 @@ public class EventFeedService
         .Replace("\\,", ",").Replace("\\;", ";").Replace("\\\\", "\\").Trim();
 
     // ---------- import ----------
-    public async Task<(int imported, int parsed)> Import(string url)
+    // Import from the feed URL saved in App_Settings (used by the auto-import
+    // background service). Returns null if no feed is configured.
+    public async Task<(int imported, int parsed)?> ImportSaved(bool triggerForecast = false)
+    {
+        var url = await GetSetting("ical_url");
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        return await Import(url, triggerForecast);
+    }
+
+    public async Task<(int imported, int parsed)> Import(string url, bool triggerForecast = true)
     {
         var all = await Fetch(url);
         // keep today onward (the forecast cares about upcoming events) + dedup by date
@@ -145,7 +154,7 @@ public class EventFeedService
         await SetSetting("ical_url", url);
         await SetSetting("ical_last_status",
             $"OK — {DateTime.Now:yyyy-MM-dd HH:mm}: parsed {all.Count}, imported {upcoming.Count} upcoming");
-        _forecast.TriggerInBackground();   // refresh the forecast so new event days show
+        if (triggerForecast) _forecast.TriggerInBackground();   // refresh the forecast so new event days show
         return (upcoming.Count, all.Count);
     }
 

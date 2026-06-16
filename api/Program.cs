@@ -22,6 +22,7 @@ builder.Services.AddTransient<ForecastService>();       // auto-runs the ML fore
 builder.Services.AddTransient<EventFeedService>();      // imports planned events from an iCal feed
 builder.Services.AddSingleton<SettingsService>();       // cached platform settings
 builder.Services.AddHostedService<SyncBackgroundService>();
+builder.Services.AddHostedService<EventFeedBackgroundService>();   // auto-imports the iCal event feed
 
 var app = builder.Build();
 app.UseSwagger();
@@ -68,6 +69,13 @@ using (var scope = app.Services.CreateScope())
             "Key"   text PRIMARY KEY,
             "Value" text NOT NULL
         );
+        -- Event calendar feed connected by default (demo source = the mock vendor's
+        -- iCal endpoint). Change the URL on the Data Source page to a real Google
+        -- Calendar .ics. DO NOTHING so a user's chosen URL is never overwritten.
+        INSERT INTO "App_Settings" ("Key","Value")
+        VALUES ('ical_url','http://localhost:8900/calendar.ics'),
+               ('ical_refresh_seconds','3600')
+        ON CONFLICT ("Key") DO NOTHING;
         """);
     // load platform settings (capacity, auto-sync interval) into the cache at startup
     scope.ServiceProvider.GetRequiredService<SettingsService>().Reload();

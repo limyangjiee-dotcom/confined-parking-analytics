@@ -82,12 +82,12 @@
 
   <!-- step 4: event calendar feed (iCal) -->
   <div class="card" style="margin-bottom:18px">
-    <div class="card-head"><div class="card-title">4 · Event calendar feed (iCal)</div><div class="card-note">pull planned events (e.g. a public Google Calendar) → the forecast becomes event-aware</div></div>
+    <div class="card-head"><div class="card-title">4 · Event calendar feed (iCal)</div><div class="card-note">connected &amp; auto-imported hourly → the forecast is event-aware. Change the .ics to a real Google Calendar.</div></div>
     <label style="display:block">iCal feed URL <span style="color:var(--text-faint)">(.ics)</span>
       <input class="input" id="icalUrl" placeholder="https://calendar.google.com/calendar/ical/…/public/basic.ics" style="width:100%;margin-top:4px" autocomplete="off"></label>
     <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
       <button class="btn ghost" id="btnIcalTest">Test feed</button>
-      <button class="btn" id="btnIcalImport">Import events</button>
+      <button class="btn" id="btnIcalImport">Import now</button>
     </div>
     <div class="gate-result" id="icalResult"></div>
     <div class="tbl-wrap" id="tblEvents" style="margin-top:12px"></div>
