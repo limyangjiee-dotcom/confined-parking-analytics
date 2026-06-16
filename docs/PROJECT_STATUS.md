@@ -6,6 +6,11 @@
 - **Tariff the synthetic data is calibrated to (real):** free first 15 min; weekday RM2 first 3 hrs, +RM1 hr 3–4, +RM2.50/hr after; flat **RM2** on Fri/weekend/public holiday.
 - **Deliverables:** ML forecast model, BI reports, web prototype, real-time pipeline, external-system integration — all built.
 
+## Status
+**Software COMPLETE as of 2026-06-16** (branch `main`, latest commit `95b0535`, not pushed to GitHub yet).
+Builds clean (0 warnings); all features verified. Remaining work is the **written FYP report** + the user
+pushing to GitHub. A pre-iCal backup copy is at `C:\FYP\parking-analytics-fyp_BACKUP_pre-ical_20260616`.
+
 ## Source of truth
 Everything lives in **one git repo: `C:\FYP\parking-analytics-fyp\`** (branch `main`). Layout:
 `api/` (ASP.NET Core 8 API + dashboard in `api/wwwroot`), `ml/` (Python forecast), `scripts/`
@@ -48,9 +53,12 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
 - **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
   (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
 - **Event calendar feed (iCal)** (`Services/EventFeedService.cs` + `Controllers/EventsController.cs`,
-  `/api/events/feed`): paste a public `.ics` URL (e.g. a Google Calendar) on the Data Source page ->
-  Test/Import; a self-contained VEVENT parser writes upcoming events into `Event_Calendar`, so the
-  forecast becomes event-aware. The mock serves a sample feed at `:8900/calendar.ics`.
+  `/api/events/feed`): imports a public `.ics` feed (e.g. a Google Calendar) into `Event_Calendar` via a
+  self-contained VEVENT parser, so the forecast becomes event-aware. **Connected by default + auto-imports:**
+  a default `ical_url` (the mock feed) is seeded on startup and `Services/EventFeedBackgroundService.cs`
+  re-imports it ~hourly (`ical_refresh_seconds`) — it's a first-class always-on integration, not optional.
+  The Data Source page also has a manual Test / "Import now". The mock serves a sample feed at `:8900/calendar.ics`.
+  (This realizes the FYP1 "optional Google Calendar iCal feed", upgraded to always-on.)
 
 ## ML forecast (V2)
 - `ml/forecast_v2.py` (daily, day-type + lag features + supervisor baseline → `Forecast_Daily_V2`),
@@ -60,6 +68,11 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
 - Backtest headline: ML beats the supervisor baseline on 9/10 daily segments (vehicles MAPE 5.3% vs 7.5%,
   revenue 6.7% vs 11.9%, event days 7.3% vs 17.9%; baseline wins only on public-holiday revenue, N=3).
 - Web **confidence** is derived from the backtest MAPE per day type (Weekday≈96%, Event≈93%, PH≈90%).
+- **Needs the full history to look right.** The model learns from the last 4 same-weekdays, so it needs
+  months of data. On the **seed dump it forecasts correctly** (varied per day type, events boosted). If the
+  DB is in the empty→4-week-mock demo state it has too little history and outputs a near-**constant** value
+  for every day — that is expected (insufficient data), NOT a bug. Demo the forecast on the baseline dataset
+  (`scripts/reset_demo.ps1 -Mode baseline`); use the mock connector to demo the integration pipeline.
 
 ## Database — PostgreSQL 16 (`parking_db`)
 - `Transactions_Cleaned` (2.5% sample, 2025 + 2026), `Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy`,
