@@ -19,6 +19,7 @@ builder.Services.AddHttpClient();   // for pulling from an external parking-syst
 builder.Services.AddTransient<IngestionService>();      // transient: resolvable from the background service's root provider
 builder.Services.AddTransient<AggregationService>();    // rebuilds summary tables from imported data
 builder.Services.AddTransient<ForecastService>();       // auto-runs the ML forecast after a sync
+builder.Services.AddTransient<EventFeedService>();      // imports planned events from an iCal feed
 builder.Services.AddSingleton<SettingsService>();       // cached platform settings
 builder.Services.AddHostedService<SyncBackgroundService>();
 

@@ -47,6 +47,10 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
 - So: **connect → sync → aggregate → dashboards & forecast update automatically**, no manual Python step.
 - **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
   (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
+- **Event calendar feed (iCal)** (`Services/EventFeedService.cs` + `Controllers/EventsController.cs`,
+  `/api/events/feed`): paste a public `.ics` URL (e.g. a Google Calendar) on the Data Source page ->
+  Test/Import; a self-contained VEVENT parser writes upcoming events into `Event_Calendar`, so the
+  forecast becomes event-aware. The mock serves a sample feed at `:8900/calendar.ics`.
 
 ## ML forecast (V2)
 - `ml/forecast_v2.py` (daily, day-type + lag features + supervisor baseline → `Forecast_Daily_V2`),

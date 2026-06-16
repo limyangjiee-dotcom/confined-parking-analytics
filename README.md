@@ -110,6 +110,11 @@ records path `data`, auth header `X-Api-Key` / `parking-vendor-key` → **Discov
 map → **Save** → **Sync**. The imported sessions rebuild the summaries and refresh the
 forecast automatically. See `connector_demo/README_CONNECTOR.md`.
 
+The same page also has an **Event calendar feed (iCal)** card: paste an `.ics` URL
+(e.g. a public Google Calendar, or the mock's `http://localhost:8900/calendar.ics`)
+→ **Test** → **Import**. Planned events are written to `Event_Calendar`, so the ML
+forecast becomes aware of upcoming event days.
+
 ### Live real-time demo
 ```bash
 cd api && dotnet run --urls http://localhost:5000      # terminal 1

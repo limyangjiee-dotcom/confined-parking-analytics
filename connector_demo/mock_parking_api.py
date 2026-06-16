@@ -109,12 +109,41 @@ def gen_sessions(days, per_day):
     return _CACHE[key]
 
 
+def gen_ical():
+    """A small iCalendar (.ics) feed of upcoming mall events — stands in for a
+    public Google Calendar so the Data Source page can import event days."""
+    today = dt.date.today()
+    plan = [
+        (today + dt.timedelta(days=3),  "MegaSale Weekend"),
+        (today + dt.timedelta(days=4),  "MegaSale Weekend"),
+        (today + dt.timedelta(days=10), "Tech Expo 2026"),
+        (today + dt.timedelta(days=14), "Career Fair"),
+        (today + dt.timedelta(days=18), "Weekend Concert"),
+    ]
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MockMall//Events//EN"]
+    for i, (d, name) in enumerate(plan):
+        nxt = d + dt.timedelta(days=1)
+        lines += ["BEGIN:VEVENT", f"UID:mock-event-{i}@mall",
+                  f"DTSTART;VALUE=DATE:{d:%Y%m%d}", f"DTEND;VALUE=DATE:{nxt:%Y%m%d}",
+                  f"SUMMARY:{name}", "END:VEVENT"]
+    lines.append("END:VCALENDAR")
+    return ("\r\n".join(lines) + "\r\n").encode()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass  # quiet
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path in ("/calendar.ics", "/events.ics"):
+            body = gen_ical()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/calendar")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if parsed.path != "/api/sessions":
             self.send_error(404, "not found"); return
         if self.headers.get("X-Api-Key") != API_KEY:
@@ -143,4 +172,5 @@ if __name__ == "__main__":
           f"(header X-Api-Key: {API_KEY})")
     print(f"  default history: {DEFAULT_DAYS} complete days @ ~{DEFAULT_PER_DAY}/day "
           f"(override with ?days=N&per_day=M)")
+    print(f"  event iCal feed: http://localhost:{PORT}/calendar.ics  (for the Data Source -> Event calendar feed)")
     HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

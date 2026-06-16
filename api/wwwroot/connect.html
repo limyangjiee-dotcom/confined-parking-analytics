@@ -80,6 +80,19 @@
     <div class="gate-result" id="settingsResult"></div>
   </div>
 
+  <!-- step 4: event calendar feed (iCal) -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-head"><div class="card-title">4 · Event calendar feed (iCal)</div><div class="card-note">pull planned events (e.g. a public Google Calendar) → the forecast becomes event-aware</div></div>
+    <label style="display:block">iCal feed URL <span style="color:var(--text-faint)">(.ics)</span>
+      <input class="input" id="icalUrl" placeholder="https://calendar.google.com/calendar/ical/…/public/basic.ics" style="width:100%;margin-top:4px" autocomplete="off"></label>
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn ghost" id="btnIcalTest">Test feed</button>
+      <button class="btn" id="btnIcalImport">Import events</button>
+    </div>
+    <div class="gate-result" id="icalResult"></div>
+    <div class="tbl-wrap" id="tblEvents" style="margin-top:12px"></div>
+  </div>
+
   <div class="kpi-grid" id="kpis"></div>
 
   <div class="card">
@@ -123,6 +136,23 @@ async function loadConfig() {
   window.__map = c.mapping || {};
   await loadSettings();
   await refreshStatus();
+  await loadIcal();
+}
+
+async function loadIcal() {
+  const s = await api("/api/events/feed");
+  $("icalUrl").value = s.url || "";
+  renderEvents(s.upcoming);
+  if (s.lastStatus && s.lastStatus !== "never imported")
+    result($("icalResult"), s.lastStatus.startsWith("OK"), s.lastStatus);
+}
+
+function renderEvents(rows) {
+  buildTable("tblEvents", [
+    { h: "Date", c: r => fmtDateFull(r.date) },
+    { h: "Event", c: r => r.name },
+    { h: "Scale", c: r => badge(r.scale || "Medium", "violet") }
+  ], rows, "No upcoming events — import an iCal feed above");
 }
 
 async function loadSettings() {
@@ -202,6 +232,21 @@ $("btnSync").onclick = async () => {
     ? `<b>Sync complete.</b> Read ${r.read}, imported ${r.inserted} new. <a href="realtime.html" style="color:var(--accent)">See Real-Time →</a>`
     : `<b>Sync failed.</b> ${r.message || r.error}`);
   refreshStatus();
+};
+
+$("btnIcalTest").onclick = async () => {
+  result($("icalResult"), false, "Fetching feed…");
+  const r = await apiPost("/api/events/feed/test", { url: $("icalUrl").value.trim() });
+  result($("icalResult"), r.ok, r.ok
+    ? `<b>Feed OK.</b> ${r.count} event day(s) found.` + (r.sample?.length ? " Next: " + r.sample.map(e => e.name).join(", ") : "")
+    : `<b>Failed.</b> ${r.message}`);
+};
+
+$("btnIcalImport").onclick = async () => {
+  result($("icalResult"), false, "Importing events…");
+  const r = await apiPost("/api/events/feed/import", { url: $("icalUrl").value.trim() });
+  result($("icalResult"), r.ok, r.ok ? `<b>Imported.</b> ${r.message}` : `<b>Failed.</b> ${r.message}`);
+  if (r.ok) await loadIcal();
 };
 
 $("btnSaveSettings").onclick = async () => {
