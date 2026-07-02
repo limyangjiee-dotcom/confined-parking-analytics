@@ -86,26 +86,24 @@ public class IngestionService
         var (cfg, _, _) = await ReadConfig();
         if (cfg == null) return new(false, 0, 0, 0, "No data source configured yet");
         List<SessionRow> rows;
-        int read;
-        try
-        {
-            rows = await FetchApiRows(cfg);
-            read = rows.Count;
-        }
-        catch (Exception e)
-        {
-            await SetStatus("ERROR — " + e.Message);
-            return new(false, 0, 0, 0, e.Message);
-        }
+        try { rows = await FetchApiRows(cfg); }
+        catch (Exception e) { await SetStatus("ERROR — " + e.Message); return new(false, 0, 0, 0, e.Message); }
+        return await ImportSessions(rows, "API");
+    }
 
+    // Shared load path: ingest a batch of normalized sessions, rebuild the summary
+    // tables, and refresh the ML forecast. Used by the API sync AND the CSV file import,
+    // so any source (API of any shape, or a spreadsheet) flows through the same pipeline.
+    public async Task<SyncResult> ImportSessions(List<SessionRow> rows, string via)
+    {
+        int read = rows.Count;
         int inserted = await IngestRows(rows);
         var (days, _) = await _agg.Rebuild();
-        // refresh the ML forecast in the background so the Forecast page updates too
         var forecastStarted = _forecast.TriggerInBackground();
-        await SetStatus($"OK (API) — read {read}, imported {inserted} new; aggregated {days} day(s)"
+        await SetStatus($"OK ({via}) — read {read}, imported {inserted} new; aggregated {days} day(s)"
                         + (forecastStarted ? "; forecast refreshing" : ""));
         return new(true, read, rows.Count, inserted,
-            $"Imported {inserted} new sessions via API and aggregated {days} day(s)"
+            $"Imported {inserted} new sessions via {via} and aggregated {days} day(s)"
             + (forecastStarted ? ". Forecast is refreshing in the background." : "."));
     }
 

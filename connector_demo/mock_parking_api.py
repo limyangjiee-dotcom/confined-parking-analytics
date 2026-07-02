@@ -130,12 +130,47 @@ def gen_ical():
     return ("\r\n".join(lines) + "\r\n").encode()
 
 
+def gen_alt(n_days=7, per_day=300):
+    """The SAME kind of sessions but in a DIFFERENT vendor schema — different
+    field names AND different JSON nesting (no auth header, records under
+    result.records). Proves the connector isn't tied to one shape: you just
+    re-map the fields on the Data Source page."""
+    today = dt.date.today()
+    out = []
+    for d in range(1, n_days + 1):
+        day = today - dt.timedelta(days=d)
+        for _ in range(per_day):
+            hour = int(min(22, max(6, random.gauss(13.5, 3.2))))
+            t_in = dt.datetime(day.year, day.month, day.day, hour,
+                               random.randint(0, 59), random.randint(0, 59))
+            dur = max(8, int(random.gauss(110, 55)))
+            t_out = t_in + dt.timedelta(minutes=dur)
+            out.append({
+                "vehicle_plate": _plate(),
+                "arrival":       t_in.isoformat(timespec="seconds"),
+                "departure":     t_out.isoformat(timespec="seconds"),
+                "amount_paid":   _fee(dur),
+                "deck_no":       random.choice(DECKS),
+                "veh_class":     random.choice(CLASSES),
+            })
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass  # quiet
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/altsessions":
+            # different vendor shape: no auth, different field names, records under result.records
+            body = json.dumps({"result": {"records": gen_alt()}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if parsed.path in ("/calendar.ics", "/events.ics"):
             body = gen_ical()
             self.send_response(200)

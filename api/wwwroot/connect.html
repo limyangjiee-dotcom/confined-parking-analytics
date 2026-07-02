@@ -93,6 +93,25 @@
     <div class="tbl-wrap" id="tblEvents" style="margin-top:12px"></div>
   </div>
 
+  <!-- step 5: import from a CSV file -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-head"><div class="card-title">5 · Import from a file (CSV)</div><div class="card-note">no API? drop a spreadsheet export — map its columns and import</div></div>
+    <input type="file" id="csvFile" accept=".csv,text/csv" class="input" style="width:100%;padding:8px">
+    <div id="csvMap" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+      <label>Plate / Vehicle ID <span style="color:var(--rose)">*</span><select class="input" id="cPlate" style="width:100%;margin-top:4px"></select></label>
+      <label>Entry time <span style="color:var(--rose)">*</span><select class="input" id="cEntry" style="width:100%;margin-top:4px"></select></label>
+      <label>Exit time<select class="input" id="cExit" style="width:100%;margin-top:4px"></select></label>
+      <label>Fee paid<select class="input" id="cFee" style="width:100%;margin-top:4px"></select></label>
+      <label>Level / zone<select class="input" id="cLevel" style="width:100%;margin-top:4px"></select></label>
+      <label>Vehicle type<select class="input" id="cType" style="width:100%;margin-top:4px"></select></label>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn ghost" id="btnCsvRead">Read columns</button>
+      <button class="btn" id="btnCsvImport">Import file</button>
+    </div>
+    <div class="gate-result" id="csvResult"></div>
+  </div>
+
   <div class="kpi-grid" id="kpis"></div>
 
   <div class="card">
@@ -247,6 +266,67 @@ $("btnIcalImport").onclick = async () => {
   const r = await apiPost("/api/events/feed/import", { url: $("icalUrl").value.trim() });
   result($("icalResult"), r.ok, r.ok ? `<b>Imported.</b> ${r.message}` : `<b>Failed.</b> ${r.message}`);
   if (r.ok) await loadIcal();
+};
+
+// ---- CSV file import ----
+let csvHeaders = [], csvRows = [];
+function parseCSV(text) {
+  const rows = []; let field = "", row = [], inq = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inq) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inq = false; }
+      else field += ch;
+    } else if (ch === '"') inq = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\r") { /* skip */ }
+    else if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else field += ch;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(c => (c || "").trim() !== ""));
+}
+
+$("btnCsvRead").onclick = () => {
+  const f = $("csvFile").files[0];
+  if (!f) { result($("csvResult"), false, "Choose a CSV file first."); return; }
+  const rd = new FileReader();
+  rd.onload = e => {
+    const all = parseCSV(e.target.result);
+    if (all.length < 2) { result($("csvResult"), false, "CSV needs a header row plus at least one data row."); return; }
+    csvHeaders = all[0].map(h => h.trim());
+    csvRows = all.slice(1);
+    const opts = optional => (optional ? '<option value="">— none —</option>' : "") +
+      csvHeaders.map((h, i) => `<option value="${i}">${h}</option>`).join("");
+    ["cPlate", "cEntry"].forEach(id => $(id).innerHTML = opts(false));
+    ["cExit", "cFee", "cLevel", "cType"].forEach(id => $(id).innerHTML = opts(true));
+    const guess = (sel, pats) => { const i = csvHeaders.findIndex(h => pats.some(p => h.toLowerCase().includes(p))); if (i >= 0) $(sel).value = i; };
+    guess("cPlate", ["plate", "lpr", "vehicle", "vrn", "reg"]);
+    guess("cEntry", ["in", "entry", "arriv", "start"]);
+    guess("cExit", ["out", "exit", "depart", "end"]);
+    guess("cFee", ["amount", "fee", "paid", "charge", "price"]);
+    guess("cLevel", ["deck", "level", "zone", "floor", "bay"]);
+    guess("cType", ["class", "type", "category"]);
+    $("csvMap").style.display = "grid";
+    result($("csvResult"), true, `<b>Read ${fmtNum(csvRows.length)} rows, ${csvHeaders.length} columns.</b> Map them → Import file.`);
+  };
+  rd.readAsText(f);
+};
+
+$("btnCsvImport").onclick = async () => {
+  if (!csvRows.length) { result($("csvResult"), false, "Read a CSV file first."); return; }
+  if ($("cPlate").value === "" || $("cEntry").value === "") { result($("csvResult"), false, "Plate and Entry time columns are required."); return; }
+  const cell = (sel, r) => { const v = $(sel).value; return v === "" ? "" : (r[+v] ?? "").trim(); };
+  const rows = csvRows.map(r => ({
+    plate: cell("cPlate", r), entry: cell("cEntry", r), exit: cell("cExit", r),
+    fee: cell("cFee", r), level: cell("cLevel", r), vehicleType: cell("cType", r)
+  })).filter(x => x.plate && x.entry);
+  result($("csvResult"), false, `Importing ${fmtNum(rows.length)} rows…`);
+  const r = await apiPost("/api/connector/import-rows", { rows });
+  result($("csvResult"), r.ok, r.ok
+    ? `<b>Imported.</b> ${r.message} <a href="realtime.html" style="color:var(--accent)">See Real-Time →</a>`
+    : `<b>Failed.</b> ${r.message}`);
+  if (r.ok) refreshStatus();
 };
 
 $("btnSaveSettings").onclick = async () => {
