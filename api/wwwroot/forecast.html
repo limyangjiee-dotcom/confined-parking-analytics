@@ -148,6 +148,7 @@ async function init() {
         <div class="fc-dow">${d.Day_Name}${isTom ? " · tomorrow" : ""}</div>
         <div class="fc-date">${fmtDate(d.Date)}</div>
         <div class="fc-type">${dayTypeBadge(d.Day_Type)}</div>
+        ${d.Weather ? `<div class="fc-weather" style="font-size:11px;color:var(--text-dim);margin-top:3px">${d.Weather === "Rainy" ? "🌧️ Rainy" : "☀️ Dry"}</div>` : ""}
         <div class="fc-veh">${fmtNum(d.Predicted_Vehicles)}</div>
         <div class="fc-unit">vehicles</div>
         <div class="fc-rev">${fmtRMFull(d.Predicted_Revenue)}</div>
@@ -191,6 +192,7 @@ async function init() {
     buildTable("tblNext", [
       { h: "Date", c: r => `${fmtDate(r.Date)} <span style="color:var(--text-faint)">${r.Day_Name.slice(0, 3)}</span>` },
       { h: "Day Type", c: r => dayTypeBadge(r.Day_Type) + (r.Day_Type === "Event" ? " " + badge(evName(r), "violet") : "") },
+      { h: "Weather", c: r => r.Weather ? (r.Weather === "Rainy" ? "🌧️ Rainy" : "☀️ Dry") : "–" },
       { h: "Vehicles", c: r => fmtNum(r.Predicted_Vehicles), num: true },
       { h: "Revenue", c: r => fmtRMFull(r.Predicted_Revenue), num: true },
       { h: "Confidence", c: r => { const c = confidenceFor(r.Day_Type, r.Prediction_Basis, mapeByType); return `<span style="color:${c.color};font-weight:650">${c.pct}% ${c.label}</span>`; } },

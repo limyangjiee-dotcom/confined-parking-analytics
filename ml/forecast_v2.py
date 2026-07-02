@@ -40,6 +40,17 @@ OUTPUT_TABLE    = "Forecast_Daily_V2"   # new table; old Forecast_30Days untouch
 
 HORIZON_DAYS = 30
 
+# ---- weather (optional): "rain -> more mall traffic" ----
+# The base synthetic parking data has no weather signal, so we seed a weather
+# series (weather_seed.py -> Weather_Daily) and apply a realistic rainy-day
+# uplift below, so the model can LEARN and USE weather (is_rainy) as a predictor.
+# On a real operator's data this correlation is already present; if Weather_Daily
+# is absent the forecast simply runs without weather.
+WEATHER_TABLE   = "Weather_Daily"
+RAIN_UPLIFT_VEH = 0.15    # rainy days: +15% vehicles
+RAIN_UPLIFT_REV = 0.12    # rainy days: +12% revenue
+WEATHER = {}              # {normalized date -> 1 rainy / 0 dry}; filled in load_data()
+
 # Candidate column names — the script auto-detects which one your table
 # actually uses. If detection fails it prints the real columns so you
 # can add the right name here.
@@ -118,6 +129,26 @@ def load_data():
             raise
         except Exception as e:
             print(f"WARNING: could not read {tbl} ({e}) — continuing without it.")
+
+    # ---- weather (optional): load Weather_Daily + bake the rainy-day uplift ----
+    global WEATHER
+    WEATHER = {}
+    try:
+        w = pd.read_sql(f'SELECT * FROM "{WEATHER_TABLE}"', eng)
+        wdate = next((c for c in ("Weather_Date", "Date", "date") if c in w.columns), None)
+        if wdate and "Is_Rainy" in w.columns:
+            w[wdate] = pd.to_datetime(w[wdate]).dt.normalize()
+            WEATHER = dict(zip(w[wdate], w["Is_Rainy"].astype(int)))
+    except Exception as e:
+        print(f"WARNING: no weather data ({e}) — forecasting without weather.")
+
+    if WEATHER:
+        rain = daily["date"].map(lambda d: WEATHER.get(pd.Timestamp(d).normalize(), 0)) == 1
+        daily.loc[rain, "vehicles"] = (daily.loc[rain, "vehicles"] * (1 + RAIN_UPLIFT_VEH)).round()
+        daily.loc[rain, "revenue"] = (daily.loc[rain, "revenue"] * (1 + RAIN_UPLIFT_REV)).round()
+        print(f"Weather sensitivity applied: +{RAIN_UPLIFT_VEH:.0%} veh / +{RAIN_UPLIFT_REV:.0%} rev "
+              f"on {int(rain.sum())} rainy training day(s).")
+
     return eng, daily, event_dates
 
 
@@ -155,6 +186,7 @@ def make_features(dates, values_history, event_dates, holiday_dates):
             is_event=int(d in event_dates),
             month=d.month,
             day_of_month=d.day,
+            is_rainy=int(WEATHER.get(pd.Timestamp(d).normalize(), 0)),
             lag7=lag7,
             sdow_mean4=np.mean(sdow_vals) if sdow_vals else np.nan,
             event_mean3=np.mean(ev_vals) if ev_vals else np.nan,
@@ -163,7 +195,7 @@ def make_features(dates, values_history, event_dates, holiday_dates):
 
 
 FEATURES = ["dow", "is_weekend", "is_holiday", "is_event",
-            "month", "day_of_month", "lag7", "sdow_mean4", "event_mean3"]
+            "month", "day_of_month", "is_rainy", "lag7", "sdow_mean4", "event_mean3"]
 
 
 def train_model(daily, target, event_dates, holiday_dates):
@@ -237,7 +269,8 @@ def forecast(daily, event_dates, horizon=HORIZON_DAYS):
 
     out = []
     for d in future:
-        rec = dict(Date=d.date(), Day_Name=DOW_NAMES[d.dayofweek])
+        rec = dict(Date=d.date(), Day_Name=DOW_NAMES[d.dayofweek],
+                   Weather="Rainy" if WEATHER.get(pd.Timestamp(d).normalize(), 0) else "Dry")
         for tgt in ("vehicles", "revenue"):
             feat = make_features([d], hists[tgt], event_dates,
                                  holiday_dates).iloc[0]
@@ -252,7 +285,7 @@ def forecast(daily, event_dates, horizon=HORIZON_DAYS):
                 rec["Day_Type"] = day_type(feat, holiday_dates)
                 rec["Prediction_Basis"] = basis
         out.append(rec)
-    return pd.DataFrame(out)[["Date", "Day_Name", "Day_Type",
+    return pd.DataFrame(out)[["Date", "Day_Name", "Day_Type", "Weather",
                               "Predicted_Vehicles", "Baseline_Vehicles",
                               "Predicted_Revenue", "Baseline_Revenue",
                               "Prediction_Basis"]]

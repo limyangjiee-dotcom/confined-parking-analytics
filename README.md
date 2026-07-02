@@ -126,10 +126,14 @@ The Real-Time page then animates; analytics pages filtered to today show live da
 ### Re-train / regenerate the ML forecast
 ```bash
 cd ml
-python forecast_v2.py            # daily forecast  -> Forecast_Daily_V2
+python weather_seed.py           # (optional) seed a weather series -> Weather_Daily
+python forecast_v2.py            # daily forecast  -> Forecast_Daily_V2 (uses weather if seeded)
 python forecast_hourly_v2.py     # hourly forecast -> Forecast_Hourly_V2
 python backtest_v2.py            # accuracy proof  -> Model_Comparison_V2
 ```
+The daily forecast supports a **weather feature**: run `weather_seed.py` once and the model learns a
+"rain → more mall traffic" effect (the Predictive Analytics page then shows a ☀️/🌧️ badge per day).
+It's optional — without the `Weather_Daily` table the forecast simply runs without weather.
 
 ### Power BI
 Open `powerbi/Parking_Dashboard.pbix` in Power BI Desktop (DirectQuery on the same PostgreSQL `parking_db`).

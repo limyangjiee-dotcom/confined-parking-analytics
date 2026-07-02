@@ -68,6 +68,12 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
 - Backtest headline: ML beats the supervisor baseline on 9/10 daily segments (vehicles MAPE 5.3% vs 7.5%,
   revenue 6.7% vs 11.9%, event days 7.3% vs 17.9%; baseline wins only on public-holiday revenue, N=3).
 - Web **confidence** is derived from the backtest MAPE per day type (Weekday≈96%, Event≈93%, PH≈90%).
+- **Weather feature** (`ml/weather_seed.py` + `forecast_v2.py`): a `Weather_Daily` table holds a synthetic
+  rain series; the daily forecast adds `is_rainy` as a predictor and learns a "rain → more mall traffic"
+  effect (rainy days forecast ~+10% weekday / ~+20% event). The Predictive Analytics page shows a
+  ☀️/🌧️ badge per day. It's **optional & graceful**: if `Weather_Daily` is absent the forecast runs
+  without weather. On real operator data the correlation is inherent; the seed only simulates it because
+  the base synthetic parking data has no weather signal. Enable with `python ml/weather_seed.py`.
 - **Needs the full history to look right.** The model learns from the last 4 same-weekdays, so it needs
   months of data. On the **seed dump it forecasts correctly** (varied per day type, events boosted). If the
   DB is in the empty→4-week-mock demo state it has too little history and outputs a near-**constant** value
