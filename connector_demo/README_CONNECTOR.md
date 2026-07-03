@@ -50,8 +50,12 @@ python mock_parking_api.py            # serves http://localhost:8900/api/session
 python _cleanup_imported.py           # optional: remove imported demo rows
 ```
 
-Tuning: add `?days=28&per_day=12000` to the URL to change how much history the
-operator "has" — more complete days = a bigger, more visible forecast shift.
+Tuning: add `?days=120&per_day=3000` (the defaults) to the URL to change how much
+history the operator "has". The generated history is realistic — day-of-week
+amplitude (Mon light → Sat peak), ±8% daily noise, a mild growth trend, and
+recurring event spikes (every 3rd weekend = MegaSale, first Wednesday = Tech Expo)
+that line up with the iCal feed at `/calendar.ics` — so after connect + sync the
+forecast has genuine patterns to learn and show.
 
 ## Production notes (scope-honest)
 - The auth value is stored in `Data_Source_Config` as text for the demo; use a secrets store in production.

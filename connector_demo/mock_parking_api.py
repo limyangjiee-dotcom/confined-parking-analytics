@@ -23,8 +23,9 @@ Then in the web app -> Data Source (REST API):
   Discover -> map lpr->plate, ts_in->entry, ts_out->exit, paid->fee,
               deck->level, klass->vehicle type -> Save -> Sync.
 
-Tuning (optional): add ?days=28&per_day=12000 to the URL to change how much
-history the operator "has". More complete days => a bigger forecast shift.
+Tuning (optional): add ?days=120&per_day=3000 to the URL to change how much
+history the operator "has". The history is realistic: day-of-week amplitude,
+daily noise, a mild growth trend, and event spikes matching the iCal feed.
 """
 import json
 import random
@@ -38,12 +39,37 @@ PLATES = ["WXY", "BMK", "VBA", "PLT", "JHG", "SWJ", "WA", "VCC", "WB", "JKL"]
 CLASSES = ["Car", "Car", "Car", "Car", "Motorcycle"]   # only car & motorcycle
 DECKS = ["P1", "P2", "P3", "B1", "B2"]
 
-# default "operator history": 28 complete days (4 of every weekday) so the
-# forecast's "avg of last 4 <weekday>" basis is fully driven by this data.
-DEFAULT_DAYS = 28
-DEFAULT_PER_DAY = 12000
+# default "operator history": ~4 months of realistic days — day-of-week amplitude,
+# daily noise, a mild growth trend, and recurring event spikes (aligned with the
+# iCal feed below) — so after connect+sync the forecast has real patterns to learn.
+# per_day=3000 keeps the payload (~450k records) syncing in well under a minute.
+DEFAULT_DAYS = 120
+DEFAULT_PER_DAY = 3000
+
+# Mon..Sun demand profile (weekday build-up -> Friday jump -> Saturday peak)
+DOW_MULT = {0: 0.84, 1: 0.82, 2: 0.88, 3: 0.96, 4: 1.18, 5: 1.38, 6: 1.24}
 
 _CACHE = {}   # (days, per_day) -> generated dataset (so test/discover/sync agree)
+
+
+def event_plan(days_back=150, days_fwd=21):
+    """Deterministic event calendar shared by the history generator AND the iCal
+    feed: every 3rd weekend is a MegaSale (big spike), first Wednesday of each
+    month is a Tech Expo (midweek spike). Past events give the forecast event
+    history to learn from; future ones give it event days to predict."""
+    today = dt.date.today()
+    plan = {}
+    d = today - dt.timedelta(days=days_back)
+    end = today + dt.timedelta(days=days_fwd)
+    while d <= end:
+        if d.weekday() == 5 and d.isocalendar()[1] % 3 == 0:   # every 3rd Saturday
+            plan[d] = ("MegaSale Weekend", 1.40)
+            if d + dt.timedelta(days=1) <= end:
+                plan[d + dt.timedelta(days=1)] = ("MegaSale Weekend", 1.32)
+        elif d.weekday() == 2 and d.day <= 7:                  # first Wednesday
+            plan[d] = ("Tech Expo", 1.25)
+        d += dt.timedelta(days=1)
+    return plan
 
 
 def _plate():
@@ -69,13 +95,21 @@ def _session(t_in, t_out):
 
 
 def gen_history(days, per_day):
-    """Complete past days (yesterday backwards) — the operator's existing history."""
+    """Complete past days (yesterday backwards) — the operator's existing history,
+    with realistic structure: day-of-week amplitude + ±8% daily noise + a mild
+    growth trend toward today + event-day spikes from event_plan()."""
     today = dt.date.today()
+    events = event_plan(days_back=days)
     out = []
-    for d in range(1, days + 1):
-        day = today - dt.timedelta(days=d)
-        is_weekend = day.weekday() >= 5
-        n = int(per_day * (1.3 if is_weekend else 1.0))   # busier weekends
+    for i in range(1, days + 1):
+        day = today - dt.timedelta(days=i)
+        rng = random.Random(day.toordinal())              # deterministic per date
+        mult = DOW_MULT[day.weekday()]
+        mult *= rng.uniform(0.92, 1.08)                   # daily noise
+        mult *= 1 + 0.10 * (days - i) / days              # mild growth toward today
+        if day in events:
+            mult *= events[day][1]                        # event spike
+        n = int(per_day * mult)
         for _ in range(n):
             # arrivals peak around early afternoon, spread across the day
             hour = int(min(22, max(6, random.gauss(13.5, 3.2))))
@@ -110,18 +144,13 @@ def gen_sessions(days, per_day):
 
 
 def gen_ical():
-    """A small iCalendar (.ics) feed of upcoming mall events — stands in for a
-    public Google Calendar so the Data Source page can import event days."""
-    today = dt.date.today()
-    plan = [
-        (today + dt.timedelta(days=3),  "MegaSale Weekend"),
-        (today + dt.timedelta(days=4),  "MegaSale Weekend"),
-        (today + dt.timedelta(days=10), "Tech Expo 2026"),
-        (today + dt.timedelta(days=14), "Career Fair"),
-        (today + dt.timedelta(days=18), "Weekend Concert"),
-    ]
+    """An iCalendar (.ics) feed of the mall's events — stands in for a public
+    Google Calendar. Includes PAST events (the same dates whose traffic spikes
+    appear in the generated history, so the forecast can learn the event effect)
+    plus the upcoming ones it should predict."""
+    plan = event_plan(days_back=DEFAULT_DAYS, days_fwd=21)
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MockMall//Events//EN"]
-    for i, (d, name) in enumerate(plan):
+    for i, (d, (name, _)) in enumerate(sorted(plan.items())):
         nxt = d + dt.timedelta(days=1)
         lines += ["BEGIN:VEVENT", f"UID:mock-event-{i}@mall",
                   f"DTSTART;VALUE=DATE:{d:%Y%m%d}", f"DTEND;VALUE=DATE:{nxt:%Y%m%d}",

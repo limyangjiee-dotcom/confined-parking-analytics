@@ -131,9 +131,10 @@ public class EventFeedService
     public async Task<(int imported, int parsed)> Import(string url, bool triggerForecast = true)
     {
         var all = await Fetch(url);
-        // keep today onward (the forecast cares about upcoming events) + dedup by date
+        // keep upcoming events (to predict) AND the recent past year (the forecast
+        // trains on past event days — "avg of last 3 event days"); dedup by date
         var today = DateTime.Today;
-        var upcoming = all.Where(e => e.Date >= today.AddDays(-1))
+        var upcoming = all.Where(e => e.Date >= today.AddDays(-400))
                           .GroupBy(e => e.Date.Date)
                           .Select(g => g.First())
                           .ToList();
@@ -153,7 +154,7 @@ public class EventFeedService
         }
         await SetSetting("ical_url", url);
         await SetSetting("ical_last_status",
-            $"OK — {DateTime.Now:yyyy-MM-dd HH:mm}: parsed {all.Count}, imported {upcoming.Count} upcoming");
+            $"OK — {DateTime.Now:yyyy-MM-dd HH:mm}: parsed {all.Count}, imported {upcoming.Count} event day(s) (incl. past for training)");
         if (triggerForecast) _forecast.TriggerInBackground();   // refresh the forecast so new event days show
         return (upcoming.Count, all.Count);
     }
