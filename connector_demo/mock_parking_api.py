@@ -82,6 +82,10 @@ def _fee(dur_min):
     return round(2 + max(0, (dur_min / 60 - 3)) * 2.5, 2)
 
 
+PAY_METHODS = ["TnG eWallet", "Card", "Cash", "Autopay"]
+PAY_WEIGHTS = [45, 30, 15, 10]
+
+
 def _session(t_in, t_out):
     amount = None if t_out is None else _fee((t_out - t_in).total_seconds() / 60)
     return {
@@ -91,13 +95,19 @@ def _session(t_in, t_out):
         "paid": amount,
         "deck": random.choice(DECKS),
         "klass": random.choice(CLASSES),
+        "pay_method": random.choices(PAY_METHODS, weights=PAY_WEIGHTS)[0],
     }
 
 
 def gen_history(days, per_day):
     """Complete past days (yesterday backwards) — the operator's existing history,
     with realistic structure: day-of-week amplitude + ±8% daily noise + a mild
-    growth trend toward today + event-day spikes from event_plan()."""
+    growth trend toward today + event-day spikes from event_plan(). Each day mixes
+    three driver populations so behaviour segmentation has something to find:
+      visitors  (~87% weekday / ~97% weekend): midday arrivals, short stays
+      workers   (~12% on weekdays): arrive 7–10am, stay 7–10 hours
+      residents (~1%): overnight/all-day stays of 12–18 hours
+    """
     today = dt.date.today()
     events = event_plan(days_back=days)
     out = []
@@ -110,14 +120,30 @@ def gen_history(days, per_day):
         if day in events:
             mult *= events[day][1]                        # event spike
         n = int(per_day * mult)
-        for _ in range(n):
-            # arrivals peak around early afternoon, spread across the day
+
+        is_weekday = day.weekday() < 5
+        n_res = max(1, int(n * 0.01))
+        n_wrk = int(n * (0.12 if is_weekday else 0.02))
+        n_vis = n - n_res - n_wrk
+
+        def add(t_in, dur_min):
+            out.append(_session(t_in, t_in + dt.timedelta(minutes=dur_min)))
+
+        for _ in range(n_vis):     # visitors: midday peak, short stays
             hour = int(min(22, max(6, random.gauss(13.5, 3.2))))
             t_in = dt.datetime(day.year, day.month, day.day, hour,
                                random.randint(0, 59), random.randint(0, 59))
-            dur = max(8, int(random.gauss(110, 55)))      # minutes
-            t_out = t_in + dt.timedelta(minutes=dur)
-            out.append(_session(t_in, t_out))
+            add(t_in, max(8, int(random.gauss(110, 55))))
+        for _ in range(n_wrk):     # workers: morning arrival, work-day stay
+            hour = int(min(10, max(6, random.gauss(8.3, 1.0))))
+            t_in = dt.datetime(day.year, day.month, day.day, hour,
+                               random.randint(0, 59), random.randint(0, 59))
+            add(t_in, max(320, min(690, int(random.gauss(540, 70)))))   # ~5.3–11.5 h
+        for _ in range(n_res):     # residents: long overnight/all-day stays
+            hour = random.randint(6, 21)
+            t_in = dt.datetime(day.year, day.month, day.day, hour,
+                               random.randint(0, 59), random.randint(0, 59))
+            add(t_in, random.randint(730, 1080))                        # 12–18 h
     return out
 
 

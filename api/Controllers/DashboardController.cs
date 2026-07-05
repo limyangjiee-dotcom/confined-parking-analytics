@@ -234,10 +234,23 @@ public class DashboardController : ControllerBase
         GROUP BY 1 ORDER BY 2 DESC", from, to));
 
     [HttpGet("levels-alltime")]
-    public async Task<IActionResult> LevelsAllTime() => Ok(await Query(@"
-        SELECT ""Parking_Level"" AS label, ""Vehicle_Count"" AS vehicles,
-               ROUND(""Revenue""::numeric,0) AS revenue, ""Average_Duration_Hours"" AS avg_duration
-        FROM ""Level_Summary"" ORDER BY 1"));
+    public async Task<IActionResult> LevelsAllTime()
+    {
+        // prefer the curated full-population rollup; when it's absent (e.g. a fresh
+        // install populated via the connector) compute per-level from the sessions
+        var rollup = await Query(@"
+            SELECT ""Parking_Level"" AS label, ""Vehicle_Count"" AS vehicles,
+                   ROUND(""Revenue""::numeric,0) AS revenue, ""Average_Duration_Hours"" AS avg_duration
+            FROM ""Level_Summary"" ORDER BY 1");
+        if (rollup.Count > 0) return Ok(rollup);
+        return Ok(await Query(@"
+            SELECT ""Parking_Level"" AS label, COUNT(*)::int AS vehicles,
+                   ROUND(SUM(""Parking_Fee"")::numeric,0) AS revenue,
+                   ROUND(AVG(""Parking_Duration_Hours"")::numeric,2) AS avg_duration
+            FROM ""Transactions_Cleaned""
+            WHERE COALESCE(""Parking_Level"",'') <> ''
+            GROUP BY 1 ORDER BY 1"));
+    }
 
     // ---------- Real-time (Live_Parking) ----------
 

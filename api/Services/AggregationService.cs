@@ -29,17 +29,24 @@ public class AggregationService
         await using var tx = await c.BeginTransactionAsync();
 
         var sql = $@"
+        -- Event days come from the Event_Calendar (fed by the iCal feed) so that
+        -- IMPORTED sessions get event-stamped too — the source system doesn't know
+        -- about our calendar, so a date-level join is the source of truth here.
         CREATE TEMP TABLE _sess ON COMMIT DROP AS
-        SELECT ""Vehicle_ID"" AS plate, ""Entry_Time"" AS t_in,
-               ""Exit_Time"" AS raw_exit,
-               COALESCE(""Exit_Time"", now()::timestamp) AS t_out,
-               COALESCE(""Parking_Fee"",0)::numeric AS fee,
-               ""Parking_Duration_Hours""::numeric AS dur,
-               COALESCE(""Parking_Level"",'') AS lvl, COALESCE(""Vehicle_Type"",'Car') AS vt,
-               COALESCE(""Payment_Type"",'') AS pay, COALESCE(""Event_Status"",'Non-Event Day') AS es,
-               COALESCE(""Event_Name"",'') AS en, ""Ticket_ID"" AS tid,
-               ""Entry_Time""::date AS d, extract(hour FROM ""Entry_Time"")::int AS h
-        FROM ""Live_Parking"";
+        SELECT lp.""Vehicle_ID"" AS plate, lp.""Entry_Time"" AS t_in,
+               lp.""Exit_Time"" AS raw_exit,
+               COALESCE(lp.""Exit_Time"", now()::timestamp) AS t_out,
+               COALESCE(lp.""Parking_Fee"",0)::numeric AS fee,
+               lp.""Parking_Duration_Hours""::numeric AS dur,
+               COALESCE(lp.""Parking_Level"",'') AS lvl, COALESCE(lp.""Vehicle_Type"",'Car') AS vt,
+               COALESCE(lp.""Payment_Type"",'') AS pay,
+               CASE WHEN ec.""Event_Date"" IS NOT NULL THEN 'Event Day'
+                    ELSE COALESCE(lp.""Event_Status"",'Non-Event Day') END AS es,
+               COALESCE(NULLIF(ec.""Event_Name"",''), lp.""Event_Name"", '') AS en,
+               lp.""Ticket_ID"" AS tid,
+               lp.""Entry_Time""::date AS d, extract(hour FROM lp.""Entry_Time"")::int AS h
+        FROM ""Live_Parking"" lp
+        LEFT JOIN ""Event_Calendar"" ec ON ec.""Event_Date"" = lp.""Entry_Time""::date;
 
         -- per-hour arrivals / revenue / avg-duration (set-based GROUP BY)
         CREATE TEMP TABLE _arr ON COMMIT DROP AS

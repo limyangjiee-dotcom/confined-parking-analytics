@@ -150,7 +150,8 @@ public class IngestionService
             var entry = Dt(el, m.EntryTime);
             if (plate == null || entry == null) continue;
             rows.Add(new SessionRow(plate, entry.Value, Dt(el, m.ExitTime),
-                Dec(el, m.Fee), Str(el, m.Level) ?? "", Str(el, m.VehicleType) ?? "Car"));
+                Dec(el, m.Fee), Str(el, m.Level) ?? "", Str(el, m.VehicleType) ?? "Car",
+                Str(el, m.Payment) ?? ""));
         }
         return rows;
     }
@@ -187,11 +188,11 @@ public class IngestionService
 
         await using (var create = new NpgsqlCommand(
             @"CREATE TEMP TABLE _imp (plate text, entry timestamp, exitt timestamp NULL,
-                                      fee numeric, lvl text, vtype text)", own))
+                                      fee numeric, lvl text, vtype text, pay text)", own))
             await create.ExecuteNonQueryAsync();
 
         await using (var importer = await own.BeginBinaryImportAsync(
-            "COPY _imp (plate, entry, exitt, fee, lvl, vtype) FROM STDIN (FORMAT BINARY)"))
+            "COPY _imp (plate, entry, exitt, fee, lvl, vtype, pay) FROM STDIN (FORMAT BINARY)"))
         {
             foreach (var r in rows)
             {
@@ -203,6 +204,7 @@ public class IngestionService
                 await importer.WriteAsync(r.Fee, NpgsqlDbType.Numeric);
                 await importer.WriteAsync(r.Level, NpgsqlDbType.Text);
                 await importer.WriteAsync(r.VehicleType, NpgsqlDbType.Text);
+                await importer.WriteAsync(r.Payment ?? "", NpgsqlDbType.Text);
             }
             await importer.CompleteAsync();
         }
@@ -214,11 +216,12 @@ public class IngestionService
                ""Parking_Level"",""Vehicle_Type"",""Payment_Type"",""Parking_Duration_Hours"",
                ""Event_Status"",""Event_Name"")
             SELECT 'IMP' || upper(substr(md5(random()::text || d.plate || d.entry::text), 1, 8)),
-                   d.plate, d.entry, d.exitt, d.fee, d.lvl, d.vtype, 'Imported',
+                   d.plate, d.entry, d.exitt, d.fee, d.lvl, d.vtype,
+                   COALESCE(NULLIF(d.pay, ''), 'Imported'),
                    CASE WHEN d.exitt IS NULL THEN NULL
                         ELSE EXTRACT(EPOCH FROM (d.exitt - d.entry)) / 3600.0 END,
                    'Non-Event Day', ''
-            FROM (SELECT DISTINCT ON (plate, entry) plate, entry, exitt, fee, lvl, vtype
+            FROM (SELECT DISTINCT ON (plate, entry) plate, entry, exitt, fee, lvl, vtype, pay
                   FROM _imp ORDER BY plate, entry) d
             WHERE NOT EXISTS (SELECT 1 FROM ""Live_Parking"" lp
                               WHERE lp.""Vehicle_ID"" = d.plate AND lp.""Entry_Time"" = d.entry)", own);

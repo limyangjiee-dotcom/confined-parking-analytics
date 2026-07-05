@@ -68,12 +68,14 @@ public class ConnectorController : ControllerBase
         var (cfg, lastSync, lastStatus) = await _ingestion.ReadConfig();
         await using var c = new NpgsqlConnection(_ownCs);
         await c.OpenAsync();
+        // imported rows are identified by their ticket prefix (Payment_Type now carries
+        // the source system's payment method when the mapping provides one)
         var imported = (long)(await new NpgsqlCommand(
-            @"SELECT COUNT(*) FROM ""Live_Parking"" WHERE ""Payment_Type""='Imported'", c).ExecuteScalarAsync() ?? 0L);
+            @"SELECT COUNT(*) FROM ""Live_Parking"" WHERE ""Ticket_ID"" LIKE 'IMP%'", c).ExecuteScalarAsync() ?? 0L);
         var preview = new List<object>();
         await using (var rd = await new NpgsqlCommand(@"
             SELECT ""Ticket_ID"",""Vehicle_ID"",""Entry_Time"",""Exit_Time"",""Parking_Fee"",""Parking_Level"",""Vehicle_Type""
-            FROM ""Live_Parking"" WHERE ""Payment_Type""='Imported'
+            FROM ""Live_Parking"" WHERE ""Ticket_ID"" LIKE 'IMP%'
             ORDER BY ""Entry_Time"" DESC LIMIT 12", c).ExecuteReaderAsync())
             while (await rd.ReadAsync())
                 preview.Add(new {

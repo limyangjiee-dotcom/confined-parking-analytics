@@ -53,6 +53,8 @@
           <select class="input map" id="mLevel" style="width:100%;margin-top:4px"></select></label>
         <label>Vehicle type
           <select class="input map" id="mVehicleType" style="width:100%;margin-top:4px"></select></label>
+        <label>Payment method
+          <select class="input map" id="mPayment" style="width:100%;margin-top:4px"></select></label>
       </div>
       <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
         <button class="btn ghost" id="btnSave">Save mapping</button>
@@ -117,7 +119,8 @@ function configBody() {
     mapping: {
       plate: $("mPlate").value, entryTime: $("mEntryTime").value,
       exitTime: $("mExitTime").value, fee: $("mFee").value,
-      level: $("mLevel").value, vehicleType: $("mVehicleType").value
+      level: $("mLevel").value, vehicleType: $("mVehicleType").value,
+      payment: $("mPayment").value
     }
   };
 }
@@ -189,6 +192,7 @@ function fillMaps(cols) {
   $("mFee").innerHTML = opts(true);
   $("mLevel").innerHTML = opts(true);
   $("mVehicleType").innerHTML = opts(true);
+  $("mPayment").innerHTML = opts(true);
   const guess = (sel, pats) => { const c = cols.find(c => pats.some(p => c.name.toLowerCase().includes(p))); if (c) $(sel).value = c.name; };
   guess("mPlate", ["plate", "lpr", "vehicle_id", "vrn", "reg"]);
   guess("mEntryTime", ["in", "entry", "arriv", "start"]);
@@ -196,6 +200,7 @@ function fillMaps(cols) {
   guess("mFee", ["amount", "fee", "paid", "charge", "price"]);
   guess("mLevel", ["deck", "level", "zone", "floor", "bay"]);
   guess("mVehicleType", ["class", "klass", "type", "category"]);
+  guess("mPayment", ["pay_method", "payment", "method", "tender", "pay_"]);
 }
 
 $("btnTest").onclick = async () => {
@@ -212,7 +217,7 @@ $("btnDiscover").onclick = async () => {
   fillMaps(discovered);
   const m = window.__map || {};
   if (m.plate && discovered.some(c => c.name === m.plate)) {
-    [["mPlate", m.plate], ["mEntryTime", m.entryTime], ["mExitTime", m.exitTime], ["mFee", m.fee], ["mLevel", m.level], ["mVehicleType", m.vehicleType]]
+    [["mPlate", m.plate], ["mEntryTime", m.entryTime], ["mExitTime", m.exitTime], ["mFee", m.fee], ["mLevel", m.level], ["mVehicleType", m.vehicleType], ["mPayment", m.payment]]
       .forEach(([id, v]) => { if (v) $(id).value = v; });
   }
   result($("connResult"), true, `<b>Found ${discovered.length} field(s).</b> Map them →`);

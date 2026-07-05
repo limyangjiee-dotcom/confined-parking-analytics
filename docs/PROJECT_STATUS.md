@@ -55,6 +55,19 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
   names `vehicle_plate/arrival/...` nested under `result.records`, no auth — just re-mapped).
 - (A CSV file-import card existed briefly and was removed by user decision on 2026-07-04 — the connector
   is REST-API-only. `IngestionService.ImportSessions` remains as the shared ingest path used by Sync.)
+- **Payment method mapping** (2026-07-05): the mapping has an optional **Payment** field — the vendor's
+  payment method (e.g. mock's `pay_method`) flows into `Live_Parking.Payment_Type`, so the payment-mix
+  chart shows real values (TnG/Card/Cash/Autopay). **Provenance marker changed**: imported rows are now
+  identified by `Ticket_ID LIKE 'IMP%'` (not `Payment_Type='Imported'`, which is only the fallback when
+  no payment mapping is set). Status counter, `_cleanup_imported.py`, and `reset_demo.ps1` all updated.
+- **Event-stamping on aggregation** (2026-07-05): `AggregationService` LEFT JOINs `Event_Calendar` by date,
+  so imported sessions on calendar-event days get `Event Day` status + the event name — Events Impact page
+  and `event_days`/`Event_Flag` now work for connector-imported data (previously always 'Non-Event Day').
+- **Revenue by level fallback**: `/api/dash/levels-alltime` prefers the curated `Level_Summary` rollup and
+  falls back to computing per-level from `Transactions_Cleaned` when the rollup is empty (fresh installs).
+- **Mock driver populations** (2026-07-05): mock history now mixes ~87% visitors, ~12% weekday workers
+  (7–10am, 7–10h stays) and ~1% residents (12–18h), so Driver Behaviour segmentation shows all 3 segments
+  on imported data. Demo note: set **capacity ≈2200 BEFORE Sync** (occupancy % bakes in at aggregation).
 - **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
   (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
 - **Event calendar feed (iCal)** (`Services/EventFeedService.cs` + `Controllers/EventsController.cs`,
