@@ -66,6 +66,15 @@ def build_rows(live):
 def main():
     import psycopg2
     conn=psycopg2.connect(CONN)
+    # GUARD: when connector-imported data is present (Ticket_ID 'IMP...'), the C# in-app
+    # AggregationService owns the summary tables (configurable capacity + Event_Calendar
+    # stamping). This legacy rollup would overwrite them every minute with CAP=11000 and
+    # no event awareness — so it steps aside. It still serves the simulator-only workflow.
+    cur0=conn.cursor()
+    cur0.execute('SELECT 1 FROM "Live_Parking" WHERE "Ticket_ID" LIKE \'IMP%\' LIMIT 1')
+    if cur0.fetchone():
+        print("Imported (connector) data present — in-app aggregation owns the summaries; skipping rollup.")
+        conn.close(); return
     live=pd.read_sql('SELECT * FROM "Live_Parking"',conn)
     if live.empty:
         print("No live data yet — start the simulator first."); return

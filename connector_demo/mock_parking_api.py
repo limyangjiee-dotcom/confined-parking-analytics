@@ -114,6 +114,10 @@ def gen_history(days, per_day):
     for i in range(1, days + 1):
         day = today - dt.timedelta(days=i)
         rng = random.Random(day.toordinal())              # deterministic per date
+        # seed the module RNG too, so plates/times/payment inside _session are also
+        # reproducible — a restarted mock then regenerates IDENTICAL sessions and the
+        # connector's (plate, entry-time) dedup keeps re-syncs idempotent
+        random.seed(day.toordinal() * 7919)
         mult = DOW_MULT[day.weekday()]
         mult *= rng.uniform(0.92, 1.08)                   # daily noise
         mult *= 1 + 0.10 * (days - i) / days              # mild growth toward today
@@ -194,6 +198,7 @@ def gen_alt(n_days=7, per_day=300):
     out = []
     for d in range(1, n_days + 1):
         day = today - dt.timedelta(days=d)
+        random.seed(day.toordinal() * 104729)   # deterministic across restarts
         for _ in range(per_day):
             hour = int(min(22, max(6, random.gauss(13.5, 3.2))))
             t_in = dt.datetime(day.year, day.month, day.day, hour,

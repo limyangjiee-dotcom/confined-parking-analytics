@@ -19,7 +19,7 @@ maps them to our analytics model, and **pulls the data in for analysis**.
 - `POST /test` — call the external API, report how many records came back + their field names.
 - `POST /discover` — fetch a sample and return the JSON fields so you can map them.
 - `GET /config` / `POST /config` — load / save the API config + field mapping (auth value stored server-side, masked on read).
-- `POST /sync` — pull the sessions, insert new rows into `Live_Parking` (`Payment_Type='Imported'`), deduped on (plate, entry-time), then rebuild the analytics summaries and refresh the ML forecast.
+- `POST /sync` — pull the sessions, insert new rows into `Live_Parking` (ticket prefix `IMP…` marks imported rows; the mapped payment method — or `'Imported'` as fallback — goes into `Payment_Type`), deduped on (plate, entry-time), then rebuild the analytics summaries and refresh the ML forecast.
 - `GET /status` — last sync time/status, imported total, preview rows.
 
 ## Web page

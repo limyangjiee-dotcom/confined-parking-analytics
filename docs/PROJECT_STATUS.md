@@ -43,7 +43,7 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
   (saved in `Data_Source_Config`, auth value masked on read), `POST /sync`, `GET /status`.
 - **Flow:** Test → Discover → Map JSON fields → Save → Sync. Sync pulls sessions, **bulk-loads via
   binary COPY** into a temp table, then one set-based deduped insert into `Live_Parking`
-  (`Payment_Type='Imported'`, deduped on plate+entry-time) — scales to hundreds of thousands of rows.
+  (ticket prefix `IMP…` marks imported rows; deduped on plate+entry-time) — scales to hundreds of thousands of rows.
 - **Auto-aggregation** (`Services/AggregationService.cs`): after each sync, rebuilds the date-grained
   summary tables (`Daily_Summary`, `Hourly_Summary`, `Hourly_Occupancy`, `Event_Log_Table`,
   `Transactions_Cleaned`) from `Live_Parking` with set-based SQL — surgical (only the imported dates).
@@ -129,5 +129,5 @@ and the topbar **admin sign-in** block.
 ## Dev-only helpers (kept locally, gitignored — not in the upload)
 - `connector_demo/mock_parking_api.py` IS committed (the connector test harness).
 - `scripts/reset_demo.ps1` (baseline/empty demo reset) and `DEMO_GUIDE.md` are kept local only.
-- After demo syncs, `connector_demo/_cleanup_imported.py` removes `Payment_Type='Imported'` rows; a full
+- After demo syncs, `connector_demo/_cleanup_imported.py` removes imported (`IMP…`-ticket) rows; a full
   reset is `database/restore_database.ps1` (or `scripts/reset_demo.ps1 -Mode baseline`).
