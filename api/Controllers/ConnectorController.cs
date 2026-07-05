@@ -62,32 +62,6 @@ public class ConnectorController : ControllerBase
         return Ok(new { ok = r.Ok, read = r.Read, matched = r.Matched, inserted = r.Inserted, message = r.Message });
     }
 
-    // Import already-mapped session rows (used by the CSV file import on the Data
-    // Source page — the browser parses the CSV, maps its columns, and posts canonical rows).
-    public record ImportRow(string Plate = "", string Entry = "", string Exit = "",
-                            string Fee = "", string Level = "", string VehicleType = "");
-    public record ImportBody(List<ImportRow>? Rows);
-
-    [HttpPost("import-rows")]
-    public async Task<IActionResult> ImportRows([FromBody] ImportBody body)
-    {
-        if (body?.Rows == null || body.Rows.Count == 0)
-            return Ok(new { ok = false, message = "No rows provided" });
-        var rows = new List<SessionRow>();
-        foreach (var r in body.Rows)
-        {
-            if (string.IsNullOrWhiteSpace(r.Plate) || !DateTime.TryParse(r.Entry, out var entry)) continue;
-            DateTime? exit = DateTime.TryParse(r.Exit, out var ex) ? ex : null;
-            decimal fee = decimal.TryParse(r.Fee, out var f) ? f : 0m;
-            rows.Add(new SessionRow(r.Plate.Trim(), entry, exit, fee,
-                r.Level?.Trim() ?? "", string.IsNullOrWhiteSpace(r.VehicleType) ? "Car" : r.VehicleType.Trim()));
-        }
-        if (rows.Count == 0)
-            return Ok(new { ok = false, message = "No valid rows — each needs at least a plate and a parseable entry time." });
-        var res = await _ingestion.ImportSessions(rows, "CSV file");
-        return Ok(new { ok = res.Ok, read = body.Rows.Count, inserted = res.Inserted, message = res.Message });
-    }
-
     [HttpGet("status")]
     public async Task<IActionResult> Status()
     {

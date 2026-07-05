@@ -53,10 +53,8 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
 - **Schema-agnostic:** the Discover+Map step means the connector is NOT tied to the mock's field names —
   any session-level JSON API works (proven against a second mock shape `/api/altsessions`: different field
   names `vehicle_plate/arrival/...` nested under `result.records`, no auth — just re-mapped).
-- **CSV file import** (`POST /api/connector/import-rows` + `IngestionService.ImportSessions`): the Data Source
-  page has an "Import from a file (CSV)" card — the browser parses the CSV, you map its columns, and it flows
-  through the SAME ingest→aggregate→forecast pipeline. So the platform accepts **file datasets, not just APIs**
-  (e.g. an operator's spreadsheet export). Sample: `connector_demo/sample_sessions.csv` (deliberately odd headers).
+- (A CSV file-import card existed briefly and was removed by user decision on 2026-07-04 — the connector
+  is REST-API-only. `IngestionService.ImportSessions` remains as the shared ingest path used by Sync.)
 - **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
   (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
 - **Event calendar feed (iCal)** (`Services/EventFeedService.cs` + `Controllers/EventsController.cs`,

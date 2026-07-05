@@ -91,9 +91,8 @@ public class IngestionService
         return await ImportSessions(rows, "API");
     }
 
-    // Shared load path: ingest a batch of normalized sessions, rebuild the summary
-    // tables, and refresh the ML forecast. Used by the API sync AND the CSV file import,
-    // so any source (API of any shape, or a spreadsheet) flows through the same pipeline.
+    // Load path: ingest a batch of normalized sessions, rebuild the summary
+    // tables, and refresh the ML forecast.
     public async Task<SyncResult> ImportSessions(List<SessionRow> rows, string via)
     {
         int read = rows.Count;

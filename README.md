@@ -110,10 +110,8 @@ records path `data`, auth header `X-Api-Key` / `parking-vendor-key` → **Discov
 map → **Save** → **Sync**. The imported sessions rebuild the summaries and refresh the
 forecast automatically. See `connector_demo/README_CONNECTOR.md`.
 
-**Not just APIs — file datasets too:** the Data Source page has an **Import from a file (CSV)** card. Pick a
-CSV (e.g. `connector_demo/sample_sessions.csv`, which uses deliberately different headers) → **Read columns** →
-map them → **Import file**. It runs through the same ingest → aggregate → forecast pipeline. And because of the
-Discover+Map step, the connector isn't tied to any one schema — different field names/shapes just get re-mapped.
+Because of the Discover+Map step, the connector isn't tied to any one schema — a different vendor's
+field names / JSON shape just gets re-mapped on the Data Source page.
 
 The same page also has an **Event calendar feed (iCal)** card: paste an `.ics` URL
 (e.g. a public Google Calendar, or the mock's `http://localhost:8900/calendar.ics`)
