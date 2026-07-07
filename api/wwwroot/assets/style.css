@@ -263,3 +263,22 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .fc-strip { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- AI insights panel ---- */
+.ai-panel{position:fixed;top:76px;right:18px;width:380px;max-width:calc(100vw - 36px);max-height:calc(100vh - 100px);
+  background:var(--card,#fff);border-radius:16px;box-shadow:0 12px 40px rgba(20,24,40,.18),0 2px 8px rgba(20,24,40,.10);
+  z-index:60;display:flex;flex-direction:column;overflow:hidden;animation:fadeUp .25s ease}
+.ai-panel[hidden]{display:none}
+.ai-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(20,24,40,.08)}
+.ai-close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--text-dim,#666);padding:2px 6px;border-radius:8px}
+.ai-close:hover{background:rgba(20,24,40,.06)}
+.ai-body{padding:14px 16px;overflow-y:auto}
+.ai-result{margin-top:10px;font-size:13.5px;line-height:1.55;color:var(--text,#222)}
+.ai-result:empty{display:none}
+.ai-sep{margin:16px 0 8px;font-size:12px;font-weight:650;color:var(--text-dim,#666);text-transform:uppercase;letter-spacing:.04em}
+.ai-askrow{display:flex;gap:8px}
+.ai-askrow .input{flex:1;min-width:0}
+.ai-note{font-size:11px;color:var(--text-faint,#999)}
+.ai-thinking{color:var(--text-dim,#666);font-style:italic}
+.ai-thinking::after{content:"";animation:aiDots 1.2s steps(4,end) infinite}
+@keyframes aiDots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}

@@ -94,8 +94,75 @@ function buildShell() {
           <input type="date" class="month-select date-input" id="dateTo" aria-label="To date">
         </div>` : ""}
         <button class="btn ghost" id="btnRefresh">Refresh</button>
+        <button class="btn" id="btnAi" title="AI summary of this page">✨ AI</button>
       </div>
     </div>`);
+
+  // ---- AI insights panel (summary of the current page + ask-your-data Q&A) ----
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="ai-panel" id="aiPanel" hidden>
+      <div class="ai-head">
+        <div><b>✨ AI Insights</b> <span class="ai-note" id="aiModel"></span></div>
+        <button class="ai-close" id="aiClose" aria-label="Close AI panel">×</button>
+      </div>
+      <div class="ai-body">
+        <button class="btn" id="aiSummarize" style="width:100%">Summarize this page</button>
+        <div class="ai-result" id="aiSummary"></div>
+        <div class="ai-sep">Ask about your data</div>
+        <div class="ai-askrow">
+          <input class="input" id="aiQuestion" placeholder="e.g. Which day earns the most revenue?" autocomplete="off">
+          <button class="btn" id="aiAsk">Ask</button>
+        </div>
+        <div class="ai-result" id="aiAnswer"></div>
+        <div class="ai-note" style="margin-top:8px">Answers are generated from your aggregated analytics only — no raw data or plate numbers are shared with the AI.</div>
+      </div>
+    </div>`);
+
+  const aiPanel = document.getElementById("aiPanel");
+  const aiRange = () => ({
+    from: document.getElementById("dateFrom")?.value || null,
+    to: document.getElementById("dateTo")?.value || null
+  });
+  // escape, then light formatting (**bold**, bullet lines, newlines)
+  const aiFmt = t => {
+    const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+              .replace(/^[*-] (.*)$/gm, "• $1")
+              .replace(/\n/g, "<br>");
+  };
+  const aiBusy = (el, on) => { el.innerHTML = on ? '<span class="ai-thinking">Thinking…</span>' : ""; };
+
+  document.getElementById("btnAi").addEventListener("click", async () => {
+    aiPanel.hidden = !aiPanel.hidden;
+    if (!aiPanel.hidden) {
+      try {
+        const s = await api("/api/ai/status");
+        document.getElementById("aiModel").textContent = s.configured ? `· ${s.model}` : "· not configured";
+        if (!s.configured)
+          document.getElementById("aiSummary").innerHTML =
+            '<span style="color:var(--rose)">No API key set — add your free Gemini key to <code>api/appsettings.Local.json</code>.</span>';
+      } catch { }
+    }
+  });
+  document.getElementById("aiClose").addEventListener("click", () => aiPanel.hidden = true);
+
+  document.getElementById("aiSummarize").addEventListener("click", async () => {
+    const out = document.getElementById("aiSummary");
+    aiBusy(out, true);
+    const r = await apiPost("/api/ai/summary", { page: body.dataset.page || "overview", ...aiRange() });
+    out.innerHTML = aiFmt(r.text || "No response.");
+  });
+
+  const doAsk = async () => {
+    const q = document.getElementById("aiQuestion").value.trim();
+    const out = document.getElementById("aiAnswer");
+    if (!q) { out.innerHTML = '<span style="color:var(--text-dim)">Type a question first.</span>'; return; }
+    aiBusy(out, true);
+    const r = await apiPost("/api/ai/ask", { question: q, ...aiRange() });
+    out.innerHTML = aiFmt(r.text || "No response.");
+  };
+  document.getElementById("aiAsk").addEventListener("click", doAsk);
+  document.getElementById("aiQuestion").addEventListener("keydown", e => { if (e.key === "Enter") doAsk(); });
 
   // refresh button — re-runs the page's data load
   document.getElementById("btnRefresh").addEventListener("click", () => {

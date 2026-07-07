@@ -26,6 +26,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# ---- secrets (never commit) ----
+api/appsettings.Local.json
+
 # ---- demo / rehearsal helpers (kept locally, not part of the upload) ----
 # connector_demo/mock_parking_api.py IS committed (the test harness for the connector).
 scripts/reset_demo.ps1

@@ -6,6 +6,8 @@ using ParkingApiPg.Services;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+// local, gitignored config for secrets (e.g. the Gemini API key: { "Ai": { "ApiKey": "..." } })
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -20,6 +22,7 @@ builder.Services.AddTransient<IngestionService>();      // transient: resolvable
 builder.Services.AddTransient<AggregationService>();    // rebuilds summary tables from imported data
 builder.Services.AddTransient<ForecastService>();       // auto-runs the ML forecast after a sync
 builder.Services.AddTransient<EventFeedService>();      // imports planned events from an iCal feed
+builder.Services.AddTransient<AiService>();             // AI summaries / Q&A over aggregated analytics (Gemini)
 builder.Services.AddSingleton<SettingsService>();       // cached platform settings
 builder.Services.AddHostedService<SyncBackgroundService>();
 builder.Services.AddHostedService<EventFeedBackgroundService>();   // auto-imports the iCal event feed
