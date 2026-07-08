@@ -102,7 +102,7 @@ function buildShell() {
   document.body.insertAdjacentHTML("beforeend", `
     <div class="ai-panel" id="aiPanel" hidden>
       <div class="ai-head">
-        <div><b>✨ AI Insights</b> <span class="ai-note" id="aiModel"></span></div>
+        <div><b>✨ AI Insights</b></div>
         <button class="ai-close" id="aiClose" aria-label="Close AI panel">×</button>
       </div>
       <div class="ai-body">
@@ -137,7 +137,6 @@ function buildShell() {
     if (!aiPanel.hidden) {
       try {
         const s = await api("/api/ai/status");
-        document.getElementById("aiModel").textContent = s.configured ? `· ${s.model}` : "· not configured";
         if (!s.configured)
           document.getElementById("aiSummary").innerHTML =
             '<span style="color:var(--rose)">No API key set — add your free Gemini key to <code>api/appsettings.Local.json</code>.</span>';
