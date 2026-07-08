@@ -28,7 +28,10 @@ A **9-page web dashboard** (served by the API at `http://localhost:5000`):
 | **Predictive Analytics** | **7-day ML forecast** of vehicles/revenue/occupancy with day-type & time-type detection, event boost, and confidence scores |
 | **Data Source** | Connect to an external parking system's **REST API**, map fields, sync — imported data flows into every page and the forecast |
 
-Every analytics page has a **date-range filter**.
+Every analytics page has a **date-range filter**, and a ✨ **AI Insights** button (Google Gemini):
+per-page plain-English summaries, forecast recommendations, and an "ask your data" Q&A box — fed only
+**aggregated statistics** (never raw sessions or plate numbers). Put a free Gemini API key in
+`api/appsettings.Local.json` (gitignored): `{ "Ai": { "ApiKey": "...", "Model": "gemini-flash-lite-latest" } }`.
 
 ## Architecture (in one line)
 This is the **analytics layer** — it does not own the gate/barrier/ANPR hardware.

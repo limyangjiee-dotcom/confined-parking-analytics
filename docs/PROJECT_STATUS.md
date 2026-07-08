@@ -70,6 +70,13 @@ date-range filter; all `/api/dash/*` endpoints take `?from=YYYY-MM-DD&to=YYYY-MM
   on imported data. Demo note: set **capacity ≈2200 BEFORE Sync** (occupancy % bakes in at aggregation).
 - **Platform settings** (`Services/SettingsService.cs`, `App_Settings`): configurable **capacity**
   (flows into `/api/occupancy`) and **auto-sync interval** (drives `Services/SyncBackgroundService.cs`).
+- **AI Insights (supervisor request, post-presentation)** (`Services/AiService.cs` + `Controllers/AiController.cs`):
+  a ✨ AI button on every page opens a panel with **"Summarize this page"** (per-page focus; the forecast
+  page adds operational recommendations) and an **"Ask about your data"** Q&A box. Uses the **Google Gemini
+  API** (free tier; model configurable, currently `gemini-flash-lite-latest`). Privacy by design: only a
+  compact AGGREGATED context (KPIs, day-of-week averages, busiest hours, event lift, mixes, segments,
+  7-day forecast) is sent — never raw sessions or plates; the AI answers from that context only. Key lives
+  in `api/appsettings.Local.json` (gitignored) or env `GEMINI_API_KEY`; degrades gracefully without it.
 - **Event calendar feed (iCal)** (`Services/EventFeedService.cs` + `Controllers/EventsController.cs`,
   `/api/events/feed`): imports a public `.ics` feed (e.g. a Google Calendar) into `Event_Calendar` via a
   self-contained VEVENT parser, so the forecast becomes event-aware. **Connected by default + auto-imports:**
